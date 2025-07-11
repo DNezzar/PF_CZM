@@ -1,6 +1,35 @@
 """
 Module de gestion des éléments cohésifs et de l'endommagement d'interface
-Version corrigée avec ordre des nœuds cohérent
+
+IMPLÉMENTATION DÉTAILLÉE DES ZONES COHÉSIVES:
+===========================================
+
+1. GÉOMÉTRIE ET CONNECTIVITÉ
+   - Les éléments cohésifs sont des éléments à épaisseur nulle
+   - Ils connectent 4 nœuds : 2 du substrat et 2 de la glace
+   - Ordre des nœuds : [sub_gauche, sub_droite, ice_gauche, ice_droite]
+   - La normale pointe du substrat vers la glace
+
+2. CINÉMATIQUE
+   - Saut de déplacement : [[u]] = u_glace - u_substrat
+   - Décomposition en modes normal (n) et tangentiel (t)
+   - Compression permise avec pénalité élevée
+
+3. LOI COHÉSIVE
+   - Loi bilinéaire de type traction-séparation
+   - Phase élastique : T = K·δ pour δ < δ₀
+   - Phase d'adoucissement : T décroît linéairement jusqu'à δc
+   - Endommagement : d = (δ - δ₀)/(δc - δ₀) pour δ₀ < δ < δc
+
+4. INTÉGRATION NUMÉRIQUE
+   - Gauss-Lobatto ou Newton-Cotes
+   - 2 à 4 points d'intégration selon la précision souhaitée
+   - L'endommagement est stocké à chaque point de Gauss
+
+5. STABILITÉ NUMÉRIQUE
+   - Rigidité cohésive réduite pour éviter le mauvais conditionnement
+   - Viscosité artificielle optionnelle pour régulariser
+   - Facteur de compression élevé pour éviter l'interpénétration
 """
 
 import numpy as np
@@ -23,7 +52,15 @@ class CohesiveTraction:
 
 
 class CohesiveZoneManager:
-    """Gestionnaire des éléments cohésifs et de l'endommagement d'interface"""
+    """
+    Gestionnaire des éléments cohésifs et de l'endommagement d'interface
+    
+    Cette classe gère tous les aspects des zones cohésives :
+    - Calcul des sauts de déplacement et des tractions
+    - Évolution de l'endommagement
+    - Assemblage des matrices de rigidité cohésives
+    - Calcul des forces d'interface
+    """
     
     def __init__(self, material_manager: MaterialManager, mesh_manager):
         self.materials = material_manager
@@ -44,14 +81,24 @@ class CohesiveZoneManager:
         self.FORCE_TOL = 1.0e-12
         
         # Flag de debug
-        self.debug = True
+        self.debug = False
         
     def get_cohesive_stiffness(self, elem_idx: int, u: np.ndarray) -> np.ndarray:
         """
         Calcule la matrice de rigidité pour un élément cohésif
         
+        La matrice 8x8 couple les 4 nœuds de l'élément cohésif.
+        Elle est construite par intégration numérique sur les points de Gauss.
+        
         ORDRE DES NŒUDS: [sub_gauche, sub_droite, ice_gauche, ice_droite]
         ORDRE DES DOFs: [u_sub1, v_sub1, u_sub2, v_sub2, u_ice1, v_ice1, u_ice2, v_ice2]
+        
+        Parameters:
+            elem_idx: Index de l'élément cohésif
+            u: Vecteur de déplacements global
+            
+        Returns:
+            K_coh: Matrice de rigidité élémentaire 8x8
         """
         cohesive_elem = self.mesh.cohesive_elements[elem_idx]
         
@@ -88,6 +135,13 @@ class CohesiveZoneManager:
     def update_damage(self, u: np.ndarray, dt: float = None) -> None:
         """
         Met à jour l'endommagement dans tous les éléments cohésifs
+        
+        L'endommagement est calculé à partir des sauts de déplacement
+        et est irréversible (ne peut qu'augmenter).
+        
+        Parameters:
+            u: Vecteur de déplacements global
+            dt: Pas de temps (optionnel, pour la viscosité)
         """
         if self.debug:
             print("\n=== MISE À JOUR ENDOMMAGEMENT INTERFACE ===")
@@ -113,15 +167,7 @@ class CohesiveZoneManager:
                     cohesive_elem.nodes, xi, u
                 )
                 
-                # Debug pour le premier élément
-                #if self.debug and elem_idx == 0 and i == 0:
-                #    print(f"  Élément 0, Point Gauss 0:")
-                #    print(f"    delta_n = {delta_n:.6e} mm")
-                #    print(f"    delta_t = {delta_t:.6e} mm")
-                #    delta_eq = np.sqrt(max(0, delta_n)**2 + delta_t**2)
-                #    print(f"    delta_eq = {delta_eq:.6e} mm")
-                
-                # Calculer les vitesses si dt fourni
+                # Calculer les vitesses si dt fourni (pour viscosité)
                 delta_n_rate = 0.0
                 delta_t_rate = 0.0
                 if dt is not None and dt > 0:
@@ -137,10 +183,6 @@ class CohesiveZoneManager:
                 # Calculer l'endommagement
                 new_damage = self._compute_damage(delta_n, delta_t)
                 
-                #if self.debug and elem_idx == 0 and i == 0:
-                #    print(f"    damage calculé = {new_damage:.6f}")
-                #    print(f"    damage précédent = {cohesive_elem.damage_prev[i]:.6f}")
-                
                 # Appliquer l'irréversibilité
                 cohesive_elem.damage[i] = max(
                     cohesive_elem.damage_prev[i], 
@@ -150,6 +192,15 @@ class CohesiveZoneManager:
     def calculate_interface_forces(self, u: np.ndarray) -> np.ndarray:
         """
         Calcule les forces cohésives à l'interface
+        
+        Les forces sont calculées par intégration des tractions
+        sur chaque élément cohésif.
+        
+        Parameters:
+            u: Vecteur de déplacements global
+            
+        Returns:
+            f_coh: Vecteur de forces cohésives global
         """
         f_coh = np.zeros(self.mesh.num_dofs_u, dtype=np.float64)
         
@@ -168,6 +219,14 @@ class CohesiveZoneManager:
     def calculate_interface_energy(self, u: np.ndarray) -> float:
         """
         Calcule l'énergie de rupture de l'interface
+        
+        L'énergie est l'intégrale de Gc·d² sur l'interface.
+        
+        Parameters:
+            u: Vecteur de déplacements global
+            
+        Returns:
+            interface_energy: Énergie de rupture totale de l'interface
         """
         interface_energy = 0.0
         
@@ -215,7 +274,22 @@ class CohesiveZoneManager:
         """
         Calcule les sauts de déplacement et la matrice de transformation
         
+        Cette méthode est au cœur du modèle cohésif. Elle :
+        1. Interpole les déplacements au point de Gauss
+        2. Calcule le saut de déplacement (glace - substrat)
+        3. Décompose en composantes normale et tangentielle
+        
         ORDRE DES NŒUDS: [sub_gauche, sub_droite, ice_gauche, ice_droite]
+        
+        Parameters:
+            nodes: Liste des 4 nœuds de l'élément cohésif
+            xi: Coordonnée du point de Gauss dans [-1, 1]
+            u: Vecteur de déplacements global
+            
+        Returns:
+            delta_n: Saut de déplacement normal
+            delta_t: Saut de déplacement tangentiel
+            T: Matrice de transformation locale 2x2
         """
         # Récupérer les nœuds
         sub_node1, sub_node2, ice_node1, ice_node2 = nodes
@@ -266,6 +340,19 @@ class CohesiveZoneManager:
                                   damage: float) -> np.ndarray:
         """
         Calcule la matrice de rigidité tangente en coordonnées locales
+        
+        La rigidité dépend de :
+        - La phase de la loi cohésive (élastique/adoucissement/rupture)
+        - L'endommagement actuel
+        - Le mode de sollicitation (traction/compression)
+        
+        Parameters:
+            delta_n: Saut de déplacement normal
+            delta_t: Saut de déplacement tangentiel
+            damage: Endommagement actuel au point de Gauss
+            
+        Returns:
+            D_local: Matrice de rigidité tangente locale 2x2
         """
         damage_factor = 1.0 - damage
         
@@ -284,7 +371,20 @@ class CohesiveZoneManager:
         return D_local
     
     def _compute_normal_stiffness(self, delta_n: float, damage_factor: float) -> float:
-        """Calcule la rigidité normale"""
+        """
+        Calcule la rigidité normale
+        
+        Comportement asymétrique :
+        - Traction : loi cohésive bilinéaire
+        - Compression : pénalité élevée pour éviter l'interpénétration
+        
+        Parameters:
+            delta_n: Saut de déplacement normal
+            damage_factor: Facteur de réduction (1 - damage)
+            
+        Returns:
+            k_nn: Rigidité normale
+        """
         if delta_n >= 0.0:  # Traction
             if delta_n <= self.cohesive_props.normal_delta0:
                 # Phase élastique
@@ -302,7 +402,16 @@ class CohesiveZoneManager:
             return self.cohesive_props.compression_factor * self.cohesive_props.normal_stiffness
     
     def _compute_tangential_stiffness(self, delta_t: float, damage_factor: float) -> float:
-        """Calcule la rigidité tangentielle"""
+        """
+        Calcule la rigidité tangentielle
+        
+        Parameters:
+            delta_t: Saut de déplacement tangentiel
+            damage_factor: Facteur de réduction (1 - damage)
+            
+        Returns:
+            k_tt: Rigidité tangentielle
+        """
         delta_t_abs = abs(delta_t)
         
         if delta_t_abs <= self.cohesive_props.shear_delta0:
@@ -320,6 +429,20 @@ class CohesiveZoneManager:
     def _compute_damage(self, delta_n: float, delta_t: float) -> float:
         """
         Calcule l'endommagement basé sur les sauts de déplacement
+        
+        L'endommagement est défini par :
+        - d = 0 si δ_eq < δ₀
+        - d = (δ_eq - δ₀)/(δc - δ₀) si δ₀ < δ_eq < δc
+        - d = 1 si δ_eq > δc
+        
+        où δ_eq est le saut équivalent en mode mixte.
+        
+        Parameters:
+            delta_n: Saut de déplacement normal
+            delta_t: Saut de déplacement tangentiel
+            
+        Returns:
+            damage: Valeur d'endommagement dans [0, 1]
         """
         # Saut équivalent en mode mixte
         delta_n_pos = max(0.0, delta_n)  # Seulement la partie positive
@@ -328,11 +451,6 @@ class CohesiveZoneManager:
         # Propriétés effectives en mode mixte
         eff_props = self.materials.calculate_effective_properties(delta_n, delta_t)
         
-        #if self.debug and delta_eq > 1e-10:
-         #   print(f"      delta_eq = {delta_eq:.6e} mm")
-         #   print(f"      delta0_eff = {eff_props['delta0_eff']:.6e} mm")
-         #   print(f"      deltac_eff = {eff_props['deltac_eff']:.6e} mm")
-        
         # Calcul de l'endommagement
         if delta_eq <= eff_props['delta0_eff']:
             return 0.0
@@ -340,8 +458,6 @@ class CohesiveZoneManager:
             # Évolution linéaire de l'endommagement
             damage = (delta_eq - eff_props['delta0_eff']) / \
                     (eff_props['deltac_eff'] - eff_props['delta0_eff'])
-            
-            # Pas de seuil minimal pour permettre l'initiation
             return damage
         else:
             return 1.0
@@ -349,7 +465,26 @@ class CohesiveZoneManager:
     def _compute_tractions(self, delta_n: float, delta_t: float, 
                           damage: float, delta_n_rate: float = 0.0,
                           delta_t_rate: float = 0.0) -> CohesiveTraction:
-        """Calcule les tractions cohésives avec régularisation visqueuse optionnelle"""
+        """
+        Calcule les tractions cohésives avec régularisation visqueuse optionnelle
+        
+        Les tractions suivent la loi cohésive bilinéaire avec :
+        - Phase élastique : T = K·δ
+        - Phase d'adoucissement : T décroît linéairement
+        - Après rupture : T = 0
+        
+        La viscosité peut être ajoutée pour régulariser : T_visc = T + η·δ̇
+        
+        Parameters:
+            delta_n: Saut de déplacement normal
+            delta_t: Saut de déplacement tangentiel
+            damage: Endommagement actuel
+            delta_n_rate: Vitesse du saut normal (pour viscosité)
+            delta_t_rate: Vitesse du saut tangentiel (pour viscosité)
+            
+        Returns:
+            CohesiveTraction: Objet contenant les tractions et l'endommagement
+        """
         damage_factor = 1.0 - damage
         
         # Paramètre de viscosité
@@ -399,8 +534,16 @@ class CohesiveZoneManager:
         """
         Calcule la matrice de transformation vers le repère local
         
+        Le repère local est défini par :
+        - Direction tangente : de gauche vers droite le long de l'interface
+        - Direction normale : perpendiculaire à la tangente, pointant vers le haut
+        
+        Parameters:
+            node1_coords: Coordonnées du premier nœud (gauche)
+            node2_coords: Coordonnées du second nœud (droite)
+            
         Returns:
-            Matrice de transformation 2x2 [n; t]
+            T: Matrice de transformation 2x2 [n; t]
         """
         # Vecteur tangent (de gauche vers droite)
         tangent = node2_coords - node1_coords
@@ -422,7 +565,16 @@ class CohesiveZoneManager:
     
     def _extract_nodal_displacements(self, node_list: List[int], 
                                    u: np.ndarray) -> np.ndarray:
-        """Extrait les déplacements nodaux"""
+        """
+        Extrait les déplacements nodaux du vecteur global
+        
+        Parameters:
+            node_list: Liste des indices de nœuds
+            u: Vecteur de déplacements global
+            
+        Returns:
+            u_nodes: Array des déplacements nodaux (n_nodes x 2)
+        """
         u_nodes = np.zeros((len(node_list), 2), dtype=np.float64)
         
         for i, node in enumerate(node_list):
@@ -433,7 +585,16 @@ class CohesiveZoneManager:
     
     def _compute_current_coordinates(self, node_list: List[int], 
                                    u_nodes: np.ndarray) -> np.ndarray:
-        """Calcule les coordonnées courantes (référence + déplacement)"""
+        """
+        Calcule les coordonnées courantes (référence + déplacement)
+        
+        Parameters:
+            node_list: Liste des indices de nœuds
+            u_nodes: Déplacements nodaux
+            
+        Returns:
+            coords: Coordonnées courantes (n_nodes x 2)
+        """
         coords = np.zeros((len(node_list), 2), dtype=np.float64)
         
         for i, node in enumerate(node_list):
@@ -448,8 +609,21 @@ class CohesiveZoneManager:
         """
         Assemble la contribution locale dans la matrice élémentaire
         
+        Cette méthode transforme la rigidité locale en rigidité globale
+        et l'assemble dans la matrice élémentaire 8x8.
+        
         ORDRE DES NŒUDS: [sub_gauche, sub_droite, ice_gauche, ice_droite]
         ORDRE DES DOFs: [u_sub1, v_sub1, u_sub2, v_sub2, u_ice1, v_ice1, u_ice2, v_ice2]
+        
+        Parameters:
+            D_local: Matrice de rigidité locale 2x2
+            T: Matrice de transformation locale
+            xi: Coordonnée du point de Gauss
+            weight: Poids d'intégration
+            element_length: Longueur de l'élément
+            
+        Returns:
+            K_local: Contribution à la matrice de rigidité élémentaire 8x8
         """
         # Matrice de rigidité globale
         D_global = T.T @ D_local @ T
@@ -489,7 +663,20 @@ class CohesiveZoneManager:
         return K_local
     
     def _compute_element_forces(self, cohesive_elem, u: np.ndarray) -> np.ndarray:
-        """Calcule les forces pour un élément cohésif"""
+        """
+        Calcule les forces pour un élément cohésif
+        
+        Les forces sont l'intégrale des tractions sur l'élément :
+        f = ∫ B^T · t dΓ
+        où B est la matrice des fonctions de forme et t les tractions.
+        
+        Parameters:
+            cohesive_elem: Élément cohésif
+            u: Vecteur de déplacements global
+            
+        Returns:
+            f_elem: Vecteur de forces élémentaires 8x1
+        """
         f_elem = np.zeros(8, dtype=np.float64)
         
         # Points d'intégration
@@ -523,7 +710,20 @@ class CohesiveZoneManager:
         """
         Assemble les forces locales dans le vecteur élémentaire
         
+        Les forces suivent le principe action-réaction :
+        - Forces sur le substrat : +t (les tractions tirent le substrat)
+        - Forces sur la glace : -t (réaction opposée)
+        
         ORDRE DES NŒUDS: [sub_gauche, sub_droite, ice_gauche, ice_droite]
+        
+        Parameters:
+            t_global: Tractions en coordonnées globales
+            xi: Coordonnée du point de Gauss
+            weight: Poids d'intégration
+            element_length: Longueur de l'élément
+            
+        Returns:
+            f_elem: Contribution aux forces élémentaires 8x1
         """
         # Fonctions de forme
         N1 = (1.0 - xi) / 2.0  # Nœud gauche
@@ -561,6 +761,11 @@ class CohesiveZoneManager:
         Assemble les forces élémentaires dans le vecteur global
         
         ORDRE DES NŒUDS: [sub_gauche, sub_droite, ice_gauche, ice_droite]
+        
+        Parameters:
+            f_global: Vecteur de forces global (modifié sur place)
+            f_elem: Forces élémentaires
+            nodes: Liste des 4 nœuds de l'élément
         """
         sub_node1, sub_node2, ice_node1, ice_node2 = nodes
         
