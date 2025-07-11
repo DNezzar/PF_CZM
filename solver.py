@@ -46,8 +46,8 @@ class SolverParameters:
     
     def __post_init__(self):
         """Calcul des paramètres dérivés pour HHT-alpha"""
-        self.gamma = (1.0 - 2.0 * self.alpha_HHT) / 2.0
-        self.beta = (1.0 - self.alpha_HHT)**2 / 4.0
+        self.beta = (1.0 + self.alpha_HHT)**2 / 4.0
+        self.gamma = 0.5 + self.alpha_HHT
 
 
 @dataclass
