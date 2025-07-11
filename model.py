@@ -67,6 +67,7 @@ class IceSubstratePhaseFieldFracture:
             ny_ice=kwargs.get('ny_ice', 10),
             ny_substrate=kwargs.get('ny_substrate', 5),
             bc_type=kwargs.get('bc_type', 'left_edge_only'),
+            czm_mesh=kwargs.get('czm_mesh', True),
             cohesive_integration=kwargs.get('cohesive_integration', 'gauss-lobatto'),
             cohesive_integration_points=kwargs.get('cohesive_integration_points', 2),
             # Paramètres de maillage progressif
@@ -161,6 +162,12 @@ class IceSubstratePhaseFieldFracture:
         print("  - Génération du maillage...")
         self.mesh = MeshManager(self.mesh_params)
         self.nodes, self.elements, self.material_id = self.mesh.generate_mesh()
+        # AJOUT DEBUG
+        print(f"\nDÉBUG après génération du maillage:")
+        print(f"  - mesh.params.czm_mesh = {self.mesh.params.czm_mesh}")
+        print(f"  - len(cohesive_elements) = {len(self.mesh.cohesive_elements)}")
+        if len(self.mesh.cohesive_elements) > 0:
+            print(f"  - Premier élément cohésif: {self.mesh.cohesive_elements[0].nodes}")
         
         # Récupérer les dimensions
         self.num_nodes = self.mesh.num_nodes
