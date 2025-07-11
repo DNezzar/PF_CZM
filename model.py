@@ -135,7 +135,6 @@ class IceSubstratePhaseFieldFracture:
             dt_increase_fast=kwargs.get('dt_increase_fast', 1.2),
             dt_decrease_factor=kwargs.get('dt_decrease_factor', 0.5),
             dt_decrease_slow=kwargs.get('dt_decrease_slow', 0.7),
-            dt_decrease_critical=kwargs.get('dt_decrease_critical', 0.25),
             staggered_iter_fast=kwargs.get('staggered_iter_fast', 2),
             staggered_iter_slow=kwargs.get('staggered_iter_slow', 8),
             damage_threshold=kwargs.get('damage_threshold', 0.90),
@@ -336,8 +335,7 @@ class IceSubstratePhaseFieldFracture:
         print(f"    • Augmentation: {self.solver_params.dt_increase_factor} (normal), "
               f"{self.solver_params.dt_increase_fast} (rapide)")
         print(f"    • Réduction: {self.solver_params.dt_decrease_factor} (normal), "
-              f"{self.solver_params.dt_decrease_slow} (lente), "
-              f"{self.solver_params.dt_decrease_critical} (critique)")
+              f"{self.solver_params.dt_decrease_slow} (lente)")
         
         print(f"\nOptions:")
         print(f"  - {'Déformation plane' if self.plane_strain else 'Contrainte plane'}")
@@ -675,7 +673,6 @@ if __name__ == "__main__":
         'dt_increase_fast': 1.2,
         'dt_decrease_factor': 0.5,
         'dt_decrease_slow': 0.7,
-        'dt_decrease_critical': 0.25,
         'staggered_iter_fast': 2,
         'staggered_iter_slow': 8,
         
