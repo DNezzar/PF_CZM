@@ -16,39 +16,39 @@ length = 170.0              # Longueur du domaine (mm)
 ice_height = 6.4            # Hauteur de la couche de glace (mm)
 substrate_height = 6.4      # Hauteur du substrat (mm)
 
-# --- NOUVEAU: Paramètres de maillage progressif ---
+# --- NOUVEAU: Activation des zones cohésives ---
+czm_mesh = True             # True: utilise des éléments cohésifs, False: maillage classique
+
+# --- Paramètres de maillage progressif ---
 use_coarse_near_bc = True   # Activer le maillage grossier près de l'encastrement
 coarse_zone_length = 15.0   # Zone grossière de 0 à 25 mm
 coarsening_ratio = 5.0      # Éléments 4x plus gros à x=0
-coarse_zone_reduction = 0.5 # Utiliser seulement 40% des éléments dans cette zone (coarse zone length)
+coarse_zone_reduction = 0.5 # Utiliser seulement 40% des éléments dans cette zone
 
 # --- Propriétés des matériaux ---
 # Glace
 E_ice = 1500.0              # Module de Young (MPa)
 nu_ice = 0.31               # Coefficient de Poisson
-#rho_ice = 0.917e-9          # Densité (ton/mm³)
-rho_ice = 0.917e-9
-Gc_ice = 0.0005              # Énergie de rupture (N/mm)
+rho_ice = 0.917e-9          # Densité (ton/mm³)
+Gc_ice = 0.0005             # Énergie de rupture (N/mm)
 
 # Substrat (aluminium)
 E_sub = 69000.0             # Module de Young (MPa)
 nu_sub = 0.325              # Coefficient de Poisson
-#rho_sub = 2.7e-9            # Densité (ton/mm³)
-rho_sub=2.7e-9
+rho_sub = 2.7e-9            # Densité (ton/mm³)
 Gc_sub = 1.0e+8             # Énergie de rupture (N/mm) - très élevée
 
 # --- Propriétés cohésives de l'interface ---
-# RIGIDITÉS (RÉDUITES POUR STABILITÉ)
-coh_normal_stiffness = 1.0e+6      # Rigidité normale (MPa/mm) - RÉDUIT de 1e+4
-coh_shear_stiffness = 1.0e+6      # Rigidité en cisaillement (MPa/mm) - RÉDUIT de 1e+4
+coh_normal_stiffness = 1.0e+2      # Rigidité normale (MPa/mm)
+coh_shear_stiffness = 1.0e+2       # Rigidité en cisaillement (MPa/mm)
 
 # RÉSISTANCES
-coh_normal_strength = 0.3e+8          # Résistance normale (MPa)
-coh_shear_strength = 0.3e+8          # Résistance en cisaillement (MPa)
+coh_normal_strength = 0.3          # Résistance normale (MPa)
+coh_shear_strength = 0.3           # Résistance en cisaillement (MPa)
 
 # ÉNERGIES DE RUPTURE
-coh_normal_Gc = 0.001e+10            # Énergie de rupture normale (N/mm)
-coh_shear_Gc = 0.001e+10              # Énergie de rupture en cisaillement (N/mm)
+coh_normal_Gc = 0.001              # Énergie de rupture normale (N/mm)
+coh_shear_Gc = 0.001               # Énergie de rupture en cisaillement (N/mm)
 
 # AUTRES PARAMÈTRES COHÉSIFS
 coh_compression_factor = 50.0       # Facteur de pénalité en compression
@@ -66,8 +66,8 @@ ramp_time = 1.0             # Temps de montée en charge (s)
 
 # --- Paramètres temporels ---
 T = 1.0                     # Temps total de simulation (s)
-dt = 1.0e-2                 # Pas de temps initial (RÉDUIT pour stabilité)
-dt_min = 1.0e-15            # Pas de temps minimal
+dt = 1.0e-2                 # Pas de temps initial
+dt_min = 1.0e-10            # Pas de temps minimal
 dt_max = 1.0e-2             # Pas de temps maximal
 
 # --- Paramètres du solveur ---
@@ -75,25 +75,22 @@ max_newton_iter = 5         # Itérations Newton max
 newton_tol = 1.0e-4         # Tolérance Newton
 max_staggered_iter = 10     # Itérations décalées max
 staggered_tol = 1.0e-2      # Tolérance schéma décalé
-alpha_HHT = -0.05            # Paramètre HHT-alpha
+alpha_HHT = -0.05           # Paramètre HHT-alpha
 
-# --- NOUVEAUX PARAMÈTRES D'ADAPTATION DU PAS DE TEMPS ---
+# --- Paramètres d'adaptation du pas de temps ---
 keep_previous_staggered = False    # Garder la solution convergée du schéma alterné
 dt_increase_factor = 1.1           # Facteur d'augmentation normale
 dt_increase_fast = 1.2             # Facteur d'augmentation rapide
 dt_decrease_factor = 0.5           # Facteur de réduction normale
 dt_decrease_slow = 0.7             # Facteur de réduction lente
-dt_decrease_critical = 0.25        # Facteur de réduction critique
 
 # Seuils d'itérations pour l'adaptation
 staggered_iter_fast = 2            # Convergence rapide si <= ce seuil
 staggered_iter_slow = 8            # Convergence lente si >= ce seuil
 
-# Seuils d'endommagement (AJUSTÉS)
-damage_threshold = 0.5             # Seuil d'évolution rapide (volume) - RÉDUIT
-interface_damage_threshold = 0.5   # Seuil d'évolution rapide (interface) - RÉDUIT
-critical_damage_low = 0.3          # Début de la zone critique
-critical_damage_high = 0.5         # Fin de la zone critique
+# Seuils d'endommagement
+damage_threshold = 0.5             # Seuil d'évolution rapide (volume)
+interface_damage_threshold = 0.5   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
 use_stress_decomposition = False   # Décomposition spectrale
@@ -116,6 +113,9 @@ model = IceSubstratePhaseFieldFracture(
     ice_height=ice_height,
     substrate_height=substrate_height,
     
+    # Zone cohésive
+    czm_mesh=czm_mesh,
+    
     # Maillage progressif
     use_coarse_near_bc=use_coarse_near_bc,
     coarse_zone_length=coarse_zone_length,
@@ -132,7 +132,7 @@ model = IceSubstratePhaseFieldFracture(
     rho_sub=rho_sub,
     Gc_sub=Gc_sub,
     
-    # Interface cohésive (avec paramètres ajustés)
+    # Interface cohésive
     coh_normal_stiffness=coh_normal_stiffness,
     coh_shear_stiffness=coh_shear_stiffness,
     coh_normal_strength=coh_normal_strength,
@@ -141,7 +141,7 @@ model = IceSubstratePhaseFieldFracture(
     coh_shear_Gc=coh_shear_Gc,
     coh_compression_factor=coh_compression_factor,
     fixed_mixity=fixed_mixity,
-    coh_viscosity=coh_viscosity,  # NOUVEAU PARAMÈTRE
+    coh_viscosity=coh_viscosity,
     
     # Champ de phase
     l0=l0,
@@ -171,15 +171,12 @@ model = IceSubstratePhaseFieldFracture(
     dt_increase_fast=dt_increase_fast,
     dt_decrease_factor=dt_decrease_factor,
     dt_decrease_slow=dt_decrease_slow,
-    dt_decrease_critical=dt_decrease_critical,
     staggered_iter_fast=staggered_iter_fast,
     staggered_iter_slow=staggered_iter_slow,
     
     # Seuils d'endommagement
     damage_threshold=damage_threshold,
     interface_damage_threshold=interface_damage_threshold,
-    critical_damage_low=critical_damage_low,
-    critical_damage_high=critical_damage_high,
     
     # Options
     use_stress_decomposition=use_stress_decomposition,
@@ -191,17 +188,15 @@ model = IceSubstratePhaseFieldFracture(
 
 # Lancer la simulation
 print("\n" + "="*60)
-print("LANCEMENT DE LA SIMULATION AVEC CORRECTIONS")
+print("LANCEMENT DE LA SIMULATION")
 print("="*60)
-print("Modifications principales:")
-print("  - Rigidité cohésive réduite: 1e+4 → 1e+2 MPa/mm")
-print("  - Viscosité artificielle ajoutée: η = 1e-4")
-print("  - Pas de temps initial réduit: 1e-2 → 5e-3 s")
-print("  - Seuils d'endommagement ajustés: 0.9 → 0.5")
-print("  - Détection de snap-back activée")
+print("Configuration principale:")
+print(f"  - Éléments cohésifs: {'Activés' if czm_mesh else 'Désactivés'}")
+print(f"  - Rigidité cohésive: {coh_normal_stiffness} MPa/mm")
+print(f"  - Pas de temps initial: {dt} s")
+print(f"  - Seuils d'endommagement: {damage_threshold}")
 print("="*60 + "\n")
 
-# Cette ligne ne sera pas exécutée à cause du sys.exit()
 results = model.solve()
 
 if results['success']:
