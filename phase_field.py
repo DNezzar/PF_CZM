@@ -15,7 +15,7 @@ class PhaseFieldParameters:
     l0: float = 1.0                    # Longueur caractéristique
     k_res: float = 1.0e-10            # Rigidité résiduelle
     irreversibility: bool = True       # Appliquer l'irréversibilité
-    threshold: float = 0.0             # Seuil minimal d'endommagement
+    threshold: float = 1e-6             # Seuil minimal d'endommagement
     max_damage: float = 1.0            # Endommagement maximal
     
     def degradation_function(self, d: float) -> float:
