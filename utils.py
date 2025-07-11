@@ -43,14 +43,12 @@ class SimulationParameters:
 
 
 class DamageChecker:
-    """Vérificateur de seuils d'endommagement avec détection de snap-back"""
+    """Vérificateur de seuils d'endommagement"""
     
     def __init__(self, damage_threshold: float = 0.90, 
-                 interface_damage_threshold: float = 0.90,
-                 snap_back_threshold: float = 0.5):
+                 interface_damage_threshold: float = 0.90):
         self.damage_threshold = damage_threshold
         self.interface_damage_threshold = interface_damage_threshold
-        self.snap_back_threshold = snap_back_threshold  # Seuil pour détecter le snap-back
     
     def check_threshold_exceeded(self, prev_d: np.ndarray, current_d: np.ndarray,
                                prev_interface_damage: List[np.ndarray],
@@ -68,8 +66,7 @@ class DamageChecker:
             'max_bulk_increase': 0.0,
             'max_interface_increase': 0.0,
             'bulk_location': None,
-            'interface_location': None,
-            'snap_back_detected': False  # NOUVEAU
+            'interface_location': None
         }
         
         # Vérifier les nœuds du volume
@@ -80,42 +77,31 @@ class DamageChecker:
                 info['max_bulk_increase'] = damage_increase
                 info['bulk_location'] = i
             
-            # Détection de snap-back
-            if damage_increase > self.snap_back_threshold:
-                info['snap_back_detected'] = True
-                print(f"  SNAP-BACK DÉTECTÉ au nœud {i}: "
-                      f"saut d'endommagement = {damage_increase:.4f}")
-            
             if damage_increase > self.damage_threshold:
                 info['bulk_exceeded'] = True
                 print(f"  Seuil d'endommagement dépassé au nœud {i}: "
                       f"{damage_increase:.4f} > {self.damage_threshold:.4f}")
                 print(f"  Précédent: {prev_d[i]:.4f}, Actuel: {current_d[i]:.4f}")
         
-        # Vérifier les points d'intégration de l'interface
-        for e in range(len(current_interface_damage)):
-            for i in range(len(current_interface_damage[e])):
-                damage_increase = current_interface_damage[e][i] - prev_interface_damage[e][i]
-                
-                if damage_increase > info['max_interface_increase']:
-                    info['max_interface_increase'] = damage_increase
-                    info['interface_location'] = (e, i)
-                
-                # Détection de snap-back à l'interface
-                if damage_increase > self.snap_back_threshold:
-                    info['snap_back_detected'] = True
-                    print(f"  SNAP-BACK DÉTECTÉ à l'interface - élément {e}, "
-                          f"point de Gauss {i}: saut = {damage_increase:.4f}")
-                
-                if damage_increase > self.interface_damage_threshold:
-                    info['interface_exceeded'] = True
-                    print(f"  Seuil d'endommagement d'interface dépassé à l'élément {e}, "
-                          f"point de Gauss {i}: {damage_increase:.4f} > "
-                          f"{self.interface_damage_threshold:.4f}")
-                    print(f"  Précédent: {prev_interface_damage[e][i]:.4f}, "
-                          f"Actuel: {current_interface_damage[e][i]:.4f}")
+        # Vérifier les points d'intégration de l'interface si CZM actif
+        if current_interface_damage:
+            for e in range(len(current_interface_damage)):
+                for i in range(len(current_interface_damage[e])):
+                    damage_increase = current_interface_damage[e][i] - prev_interface_damage[e][i]
+                    
+                    if damage_increase > info['max_interface_increase']:
+                        info['max_interface_increase'] = damage_increase
+                        info['interface_location'] = (e, i)
+                    
+                    if damage_increase > self.interface_damage_threshold:
+                        info['interface_exceeded'] = True
+                        print(f"  Seuil d'endommagement d'interface dépassé à l'élément {e}, "
+                              f"point de Gauss {i}: {damage_increase:.4f} > "
+                              f"{self.interface_damage_threshold:.4f}")
+                        print(f"  Précédent: {prev_interface_damage[e][i]:.4f}, "
+                              f"Actuel: {current_interface_damage[e][i]:.4f}")
         
-        exceeded = info['bulk_exceeded'] or info['interface_exceeded'] or info['snap_back_detected']
+        exceeded = info['bulk_exceeded'] or info['interface_exceeded']
         return exceeded, info
 
 
@@ -204,8 +190,7 @@ class DataLogger:
                 'kinetic': [],
                 'total': []
             },
-            'convergence': [],
-            'snap_back_events': []  # NOUVEAU
+            'convergence': []
         }
         
         # Créer le répertoire de sortie
@@ -227,14 +212,6 @@ class DataLogger:
         
         self.data['convergence'].append(convergence_info)
         
-        # Détecter les événements de snap-back
-        if convergence_info.get('damage_evolution', {}).get('snap_back_detected', False):
-            self.data['snap_back_events'].append({
-                'step': step,
-                'time': time,
-                'max_increase': convergence_info['damage_evolution'].get('max_bulk_increase', 0.0)
-            })
-        
         # Écrire dans le fichier de log
         with open(self.log_file, 'a') as f:
             f.write(f"\nStep {step}: Time = {time:.6f}\n")
@@ -250,13 +227,6 @@ class DataLogger:
         with open(output_file, 'w') as f:
             json.dump(self.data, f, indent=2)
         print(f"Données sauvegardées dans {output_file}")
-        
-        # Rapport sur les snap-backs
-        if self.data['snap_back_events']:
-            print(f"\nATTENTION: {len(self.data['snap_back_events'])} événements de snap-back détectés!")
-            for event in self.data['snap_back_events']:
-                print(f"  - Pas {event['step']}, Temps {event['time']:.4f}, "
-                      f"Saut max: {event['max_increase']:.4f}")
     
     def save_arrays(self, arrays_dict: Dict[str, np.ndarray]):
         """Sauvegarde des arrays NumPy"""
@@ -313,6 +283,10 @@ class InterfaceDebugger:
     def print_interface_state(mesh, cohesive_manager, u: np.ndarray, 
                             location: str = "left_edge"):
         """Affiche l'état de l'interface à un endroit spécifique"""
+        if not mesh.params.czm_mesh:
+            print("Interface debugging: CZM désactivé")
+            return
+            
         print(f"\n{'='*60}")
         print(f"État de l'interface au {location}")
         print(f"{'='*60}")
@@ -332,7 +306,7 @@ class InterfaceDebugger:
                                      cohesive_manager, u: np.ndarray):
         """Affiche l'état détaillé d'un élément cohésif"""
         # Nœuds
-        sub_node1, sub_node2, ice_node2, ice_node1 = elem.nodes
+        sub_node1, sub_node2, ice_node1, ice_node2 = elem.nodes
         
         # Déplacements
         u_sub1 = np.array([
