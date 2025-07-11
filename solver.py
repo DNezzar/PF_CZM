@@ -484,7 +484,7 @@ class AdaptiveTimeStepping:
         exceeded, info = self.damage_checker.check_threshold_exceeded(
             d_prev, d_curr, interface_damage_prev, interface_damage_curr
         )
-        
+
         return {
             'damage_exceeded': exceeded,
             'max_bulk_increase': info['max_bulk_increase'],
