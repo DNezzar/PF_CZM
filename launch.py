@@ -71,22 +71,22 @@ dt_min = 1.0e-10            # Pas de temps minimal
 dt_max = 1.0e-2             # Pas de temps maximal
 
 # --- Paramètres du solveur ---
-max_newton_iter = 8         # Itérations Newton max
+max_newton_iter = 5         # Itérations Newton max
 newton_tol = 5.0e-5         # Tolérance Newton
-max_staggered_iter = 15     # Itérations décalées max
+max_staggered_iter = 5     # Itérations décalées max
 staggered_tol = 5.0e-3      # Tolérance schéma décalé
 alpha_HHT = 0.05           # Paramètre HHT-alpha --> alpha [0;1/3]
 
 # --- Paramètres d'adaptation du pas de temps ---
 keep_previous_staggered = False    # Garder la solution convergée du schéma alterné
-dt_increase_factor = 1.1           # Facteur d'augmentation normale
+dt_increase_factor = 1.2           # Facteur d'augmentation normale
 dt_increase_fast = 1.2             # Facteur d'augmentation rapide
 dt_decrease_factor = 0.5           # Facteur de réduction normale
-dt_decrease_slow = 0.7             # Facteur de réduction lente
+dt_decrease_slow = 0.5             # Facteur de réduction lente
 
 # Seuils d'itérations pour l'adaptation
-staggered_iter_fast = 5            # Convergence rapide si <= ce seuil
-staggered_iter_slow = 10            # Convergence lente si >= ce seuil
+staggered_iter_fast = 1            # Convergence rapide si <= ce seuil
+staggered_iter_slow = 5            # Convergence lente si >= ce seuil
 
 # Seuils d'endommagement
 damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
