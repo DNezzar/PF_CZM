@@ -138,9 +138,7 @@ class IceSubstratePhaseFieldFracture:
             staggered_iter_fast=kwargs.get('staggered_iter_fast', 2),
             staggered_iter_slow=kwargs.get('staggered_iter_slow', 8),
             damage_threshold=kwargs.get('damage_threshold', 0.90),
-            interface_damage_threshold=kwargs.get('interface_damage_threshold', 0.90),
-            critical_damage_low=kwargs.get('critical_damage_low', 0.3),
-            critical_damage_high=kwargs.get('critical_damage_high', 0.5)
+            interface_damage_threshold=kwargs.get('interface_damage_threshold', 0.90)
         )
         
         # Paramètres de visualisation
