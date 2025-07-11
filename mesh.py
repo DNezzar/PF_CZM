@@ -18,9 +18,11 @@ class MeshParameters:
     ny_ice: int = 10
     ny_substrate: int = 5
     bc_type: str = 'left_edge_only'
+    # Nouveau paramètre pour activer/désactiver les zones cohésives
+    czm_mesh: bool = True
     # Paramètres d'intégration cohésive
-    cohesive_integration: str = 'gauss-lobatto'  # 'gauss-lobatto' ou 'newton-cotes'
-    cohesive_integration_points: int = 2  # Nombre de points d'intégration
+    cohesive_integration: str = 'gauss-lobatto'
+    cohesive_integration_points: int = 2
     # Paramètres de maillage progressif
     use_coarse_near_bc: bool = True
     coarse_zone_length: float = 20.0
@@ -117,7 +119,7 @@ class MeshManager:
         self.material_id: Optional[np.ndarray] = None
         self.cohesive_elements: List[CohesiveElement] = []
         
-        # Nœuds d'interface
+        # Nœuds d'interface (vides si czm_mesh=False)
         self.substrate_interface_nodes: List[int] = []
         self.ice_interface_nodes: List[int] = []
         
@@ -140,6 +142,7 @@ class MeshManager:
             material_id: ID des matériaux pour chaque élément
         """
         print("Generating mesh...")
+        print(f"  Zones cohésives (CZM): {'Activées' if self.params.czm_mesh else 'Désactivées'}")
         
         # Calcul des tailles d'éléments
         self.hx = self.params.length / self.params.nx
@@ -158,14 +161,12 @@ class MeshManager:
         # Attribution des matériaux
         self._assign_material_ids()
         
-        # Création des nœuds d'interface dupliqués
-        self._create_interface_nodes()
-        
-        # Mise à jour de la connectivité pour les éléments de glace
-        self._update_ice_connectivity()
-        
-        # Création des éléments cohésifs
-        self._create_cohesive_elements()
+        if self.params.czm_mesh:
+            # Mode CZM : créer les nœuds dupliqués et les éléments cohésifs
+            self._create_interface_nodes()
+            self._update_ice_connectivity()
+            self._create_cohesive_elements()
+        # Sinon, maillage classique sans duplication
         
         # Application des conditions aux limites
         self._apply_boundary_conditions()
@@ -174,7 +175,10 @@ class MeshManager:
         self._create_dof_mappings()
         
         print(f"Mesh generated with {self.num_nodes} nodes and {self.num_elements} elements.")
-        print(f"Number of cohesive elements at interface: {len(self.cohesive_elements)}")
+        if self.params.czm_mesh:
+            print(f"Number of cohesive elements at interface: {len(self.cohesive_elements)}")
+        else:
+            print("Interface with perfect bonding (no cohesive elements)")
         
         return self.nodes, self.elements, self.material_id
     
@@ -363,7 +367,10 @@ class MeshManager:
                 self.material_id[e] = 1  # Glace
     
     def _create_interface_nodes(self):
-        """Crée les nœuds dupliqués à l'interface"""
+        """Crée les nœuds dupliqués à l'interface (uniquement si czm_mesh=True)"""
+        if not self.params.czm_mesh:
+            return
+            
         # Trouve les nœuds du substrat à l'interface
         for i in range(self.num_nodes):
             if abs(self.nodes[i, 1] - self.params.interface_y) < self.ZERO_TOL:
@@ -381,6 +388,9 @@ class MeshManager:
     
     def _update_ice_connectivity(self):
         """Met à jour la connectivité des éléments de glace pour utiliser les nœuds dupliqués"""
+        if not self.params.czm_mesh:
+            return
+            
         for e in range(self.num_elements):
             if self.material_id[e] == 1:  # Élément de glace
                 element_nodes = self.elements[e].copy()
@@ -392,6 +402,9 @@ class MeshManager:
     
     def _create_cohesive_elements(self):
         """Crée les éléments cohésifs à épaisseur nulle à l'interface"""
+        if not self.params.czm_mesh:
+            return
+            
         self.cohesive_elements = []
         
         # Obtenir les points et poids d'intégration selon la méthode choisie
@@ -500,5 +513,6 @@ class MeshManager:
             'y_position': self.params.interface_y,
             'substrate_nodes': self.substrate_interface_nodes,
             'ice_nodes': self.ice_interface_nodes,
-            'cohesive_elements': self.cohesive_elements
+            'cohesive_elements': self.cohesive_elements,
+            'czm_active': self.params.czm_mesh
         }
