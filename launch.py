@@ -9,8 +9,8 @@ from model import IceSubstratePhaseFieldFracture
 # ============================================================
 
 # --- Paramètres du maillage ---
-nx = 567                   # Nombre d'éléments en X
-ny_ice = 21                 # Nombre d'éléments dans la glace
+nx = 250                   # Nombre d'éléments en X
+ny_ice = 10                 # Nombre d'éléments dans la glace
 ny_substrate = 5            # Nombre d'éléments dans le substrat
 length = 170.0              # Longueur du domaine (mm)
 ice_height = 6.4            # Hauteur de la couche de glace (mm)
@@ -71,10 +71,10 @@ dt_min = 1.0e-10            # Pas de temps minimal
 dt_max = 1.0e-2             # Pas de temps maximal
 
 # --- Paramètres du solveur ---
-max_newton_iter = 5         # Itérations Newton max
-newton_tol = 1.0e-4         # Tolérance Newton
-max_staggered_iter = 10     # Itérations décalées max
-staggered_tol = 1.0e-2      # Tolérance schéma décalé
+max_newton_iter = 8         # Itérations Newton max
+newton_tol = 5.0e-5         # Tolérance Newton
+max_staggered_iter = 15     # Itérations décalées max
+staggered_tol = 5.0e-3      # Tolérance schéma décalé
 alpha_HHT = 0.05           # Paramètre HHT-alpha --> alpha [0;1/3]
 
 # --- Paramètres d'adaptation du pas de temps ---
@@ -85,12 +85,12 @@ dt_decrease_factor = 0.5           # Facteur de réduction normale
 dt_decrease_slow = 0.7             # Facteur de réduction lente
 
 # Seuils d'itérations pour l'adaptation
-staggered_iter_fast = 2            # Convergence rapide si <= ce seuil
-staggered_iter_slow = 8            # Convergence lente si >= ce seuil
+staggered_iter_fast = 5            # Convergence rapide si <= ce seuil
+staggered_iter_slow = 10            # Convergence lente si >= ce seuil
 
 # Seuils d'endommagement
-damage_threshold = 0.9             # Seuil d'évolution rapide (volume)
-interface_damage_threshold = 0.9   # Seuil d'évolution rapide (interface)
+damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
+interface_damage_threshold = 0.8   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
 use_stress_decomposition = False   # Décomposition spectrale
