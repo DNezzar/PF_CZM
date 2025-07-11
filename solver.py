@@ -35,7 +35,6 @@ class SolverParameters:
     dt_increase_fast: float = 1.2            # Augmentation rapide (convergence très rapide)
     dt_decrease_factor: float = 0.5          # Réduction normale
     dt_decrease_slow: float = 0.7            # Réduction légère (convergence lente)
-    dt_decrease_critical: float = 0.25       # Réduction forte (zone critique)
     
     # Seuils pour l'adaptation
     staggered_iter_fast: int = 2             # Convergence rapide si <= ce seuil
@@ -44,13 +43,9 @@ class SolverParameters:
     # Seuils d'endommagement
     damage_threshold: float = 0.90
     interface_damage_threshold: float = 0.90
-    critical_damage_low: float = 0.3         # Début zone critique
-    critical_damage_high: float = 0.5        # Fin zone critique
     
     def __post_init__(self):
         """Calcul des paramètres dérivés pour HHT-alpha"""
-        #self.beta = (1.0 + self.alpha_HHT)**2 / 4.0
-        #self.gamma = 0.5 + self.alpha_HHT
         self.gamma = (1.0 - 2.0 * self.alpha_HHT) / 2.0
         self.beta = (1.0 - self.alpha_HHT)**2 / 4.0
 
@@ -219,7 +214,7 @@ class HHTAlphaSolver:
         """Calcule le résidu pour le schéma HHT-alpha"""
         alpha = params['alpha_HHT']
         
-        # CORRECTION: Utiliser get_internal_forces pour inclure les forces cohésives
+        # Forces internes au temps n+1
         f_int_curr = K_curr @ u
         
         # Forces au temps précédent si nécessaire
@@ -308,9 +303,9 @@ class StaggeredSolver:
         a = a_prev.copy()
         d = d_prev.copy()
         
-        # Sauvegarder l'état des éléments cohésifs
+        # Sauvegarder l'état des éléments cohésifs si CZM actif
+        interface_damage_prev = []
         if self.cohesive:
-            interface_damage_prev = []
             for elem in self.cohesive.mesh.cohesive_elements:
                 interface_damage_prev.append(elem.damage.copy())
         
@@ -345,10 +340,10 @@ class StaggeredSolver:
                 print("    Problème mécanique non convergé")
                 break
             
-            # 2. Mettre à jour l'endommagement de l'interface
+            # 2. Mettre à jour l'endommagement de l'interface si CZM actif
             if self.cohesive:
                 print("    Mise à jour de l'endommagement de l'interface...")
-                self.cohesive.update_damage(u,dt)
+                self.cohesive.update_damage(u, dt)
             
             # 3. Résoudre le problème du champ de phase
             print("    Résolution du champ de phase...")
@@ -422,10 +417,6 @@ class AdaptiveTimeStepping:
         # Historique
         self.dt_history = [self.dt]
         self.adaptation_history = []
-        
-        # État de zone critique
-        self.in_critical_zone = False
-        self.critical_zone_steps = 0
     
     def compute_next_timestep(self, convergence_info: Dict, damage_info: Dict,
                             current_dt: float) -> Tuple[float, str]:
@@ -439,52 +430,20 @@ class AdaptiveTimeStepping:
         # Vérifier si l'endommagement évolue trop rapidement
         damage_exceeded = damage_info.get('damage_exceeded', False)
         
-        # Vérifier si on est dans une zone critique
-        critical_zone = damage_info.get('critical_zone', False)
-        
-        # Détecter les sauts brutaux (snap-back)
-        snap_back = damage_info.get('snap_back_detected', False)
-        
         # Vérifier la convergence
         converged = convergence_info.get('staggered_converged', False)
         stag_iter = convergence_info.get('staggered_iterations', 0)
         
-        # Logique d'adaptation
+        # Logique d'adaptation simplifiée
         if not converged:
             # Non-convergence
             new_dt = current_dt * self.params.dt_decrease_factor
             reason = "Non-convergence"
         
-        elif snap_back:
-            # Détection de snap-back
-            new_dt = current_dt * self.params.dt_decrease_critical
-            reason = "Snap-back détecté"
-        
         elif damage_exceeded:
             # Évolution rapide de l'endommagement
             new_dt = current_dt * self.params.dt_decrease_factor
             reason = "Évolution rapide de l'endommagement"
-        
-        elif critical_zone:
-            # Zone critique détectée
-            new_dt = current_dt * self.params.dt_decrease_critical
-            reason = f"Zone critique (interface {self.params.critical_damage_low:.0%}-{self.params.critical_damage_high:.0%} endommagée)"
-            self.in_critical_zone = True
-            self.critical_zone_steps = 0
-        
-        elif self.in_critical_zone:
-            # Dans une zone critique
-            self.critical_zone_steps += 1
-            
-            if self.critical_zone_steps < 10:
-                # Rester prudent
-                new_dt = min(current_dt * 1.02, self.params.dt_max)
-                reason = f"Zone critique (pas {self.critical_zone_steps}/10)"
-            else:
-                # Sortir de la zone critique
-                self.in_critical_zone = False
-                new_dt = current_dt * 1.05
-                reason = "Sortie de zone critique"
         
         elif stag_iter >= self.params.staggered_iter_slow:
             # Convergence lente
@@ -526,31 +485,11 @@ class AdaptiveTimeStepping:
             d_prev, d_curr, interface_damage_prev, interface_damage_curr
         )
         
-        # Détecter les sauts brutaux d'endommagement (snap-back)
-        max_increase = info['max_bulk_increase']
-        if max_increase > 0.5:  # Saut de plus de 50%
-            print(f"  ATTENTION: Snap-back détecté - saut d'endommagement: {max_increase:.3f}")
-            exceeded = True
-            info['snap_back_detected'] = True
-        
-        # Vérifier si on est dans une zone critique
-        critical_zone = False
-        if interface_damage_curr:
-            for elem_curr, elem_prev in zip(interface_damage_curr, interface_damage_prev):
-                max_damage = np.max(elem_curr)
-                if self.params.critical_damage_low < max_damage < self.params.critical_damage_high:
-                    damage_rate = np.max(elem_curr - elem_prev)
-                    if damage_rate < 1e-6:  # Endommagement "bloqué"
-                        critical_zone = True
-                        break
-        
         return {
             'damage_exceeded': exceeded,
             'max_bulk_increase': info['max_bulk_increase'],
             'max_interface_increase': info['max_interface_increase'],
-            'info': info,
-            'critical_zone': critical_zone,
-            'snap_back_detected': info.get('snap_back_detected', False)
+            'info': info
         }
     
     def get_statistics(self) -> Dict:
@@ -611,6 +550,7 @@ class MainSolver:
         print("Démarrage de la simulation...")
         print(f"Temps total: {total_time}, dt initial: {self.time_stepper.dt}")
         print(f"Option keep_previous_staggered: {self.model.solver_params.keep_previous_staggered}")
+        print(f"Éléments cohésifs: {'Activés' if self.model.mesh.params.czm_mesh else 'Désactivés'}")
         
         # Initialisation
         results = {
@@ -642,7 +582,7 @@ class MainSolver:
                 'step': self.step
             }
             
-            # Sauvegarder l'endommagement de l'interface
+            # Sauvegarder l'endommagement de l'interface si CZM actif
             if self.model.cohesive_manager:
                 state_backup['interface_damage'] = []
                 for elem in self.model.mesh.cohesive_elements:
@@ -660,12 +600,10 @@ class MainSolver:
             
             if step_converged:
                 # Vérifier l'évolution de l'endommagement
+                interface_damage_curr = []
                 if self.model.cohesive_manager:
-                    interface_damage_curr = []
                     for elem in self.model.mesh.cohesive_elements:
                         interface_damage_curr.append(elem.damage.copy())
-                else:
-                    interface_damage_curr = []
                 
                 damage_info = self.time_stepper.check_damage_evolution(
                     state_backup['d'], d_new, 
@@ -675,8 +613,6 @@ class MainSolver:
                 
                 if damage_info['damage_exceeded']:
                     print(f"  Seuil d'endommagement dépassé")
-                    if damage_info.get('snap_back_detected', False):
-                        print(f"  SNAP-BACK DÉTECTÉ!")
                     # Restaurer l'état précédent
                     self._restore_state(state_backup)
                     # Réduire dt et refaire le même pas
@@ -734,7 +670,7 @@ class MainSolver:
                     # Option activée : garder la dernière solution convergée et passer au pas suivant
                     print(f"  Conservation de la solution convergée (itération {conv_info['last_converged_iteration']})")
                     
-                    # IMPORTANT: Mettre à jour l'état du modèle avec la solution partiellement convergée
+                    # Mettre à jour l'état du modèle avec la solution partiellement convergée
                     self.model.u = u_new
                     self.model.v = v_new
                     self.model.a = a_new
@@ -752,7 +688,7 @@ class MainSolver:
                         'time': self.current_time,
                         'dt': dt,
                         'convergence': conv_info,
-                        'partially_converged': True,  # Marquer comme partiellement convergé
+                        'partially_converged': True,
                         'energies': energies.to_dict(),
                         'damage': {
                             'max_bulk': np.max(self.model.d),
@@ -762,7 +698,7 @@ class MainSolver:
                     
                     results['convergence_history'].append(step_results)
                     
-                    # APPELER LE CALLBACK POUR GÉNÉRER LES PLOTS
+                    # Appeler le callback pour générer les plots
                     if callback and (self.step % output_interval == 0):
                         print(f"  Génération des plots pour la solution partiellement convergée...")
                         callback(self.model, step_results)
@@ -789,7 +725,6 @@ class MainSolver:
                     
                     self.time_stepper.dt = new_dt
                     print(f"  Nouveau calcul du même pas avec dt = {new_dt:.6e}")
-                    # On ne change pas self.step car on refait le même pas
                     self.step -= 1  # Pour compenser l'incrémentation au début de la boucle
                     continue
                 
