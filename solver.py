@@ -231,11 +231,8 @@ class HHTAlphaSolver:
             f_ext_prev = np.zeros_like(f_ext_curr)
         
         # Résidu HHT-alpha
-        residual = (M @ a + 
-                   (1.0 + alpha) * f_int_curr - 
-                   alpha * f_int_prev - 
-                   (1.0 + alpha) * f_ext_curr + 
-                   alpha * f_ext_prev)
+        #residual = (M @ a + (1.0 + alpha) * f_int_curr - alpha * f_int_prev - (1.0 + alpha) * f_ext_curr + alpha * f_ext_prev)
+        residual = (M @ a + (1.0 - alpha) * f_int_curr + alpha * f_int_prev - (1.0 + alpha) * f_ext_curr - alpha * f_ext_prev)
         
         return residual
     
@@ -352,7 +349,8 @@ class StaggeredSolver:
             # 4. Vérifier la convergence (UNIQUEMENT sur l'endommagement)
             d_diff = np.linalg.norm(d - d_old)
             d_norm = np.linalg.norm(d) + 1e-10
-            d_residual = d_diff / d_norm
+            #d_residual = d_diff / d_norm
+            d_residual = d_diff
             
             print(f"    Résidu endommagement: {d_residual:.6e}")
             
