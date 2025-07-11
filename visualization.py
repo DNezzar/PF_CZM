@@ -935,6 +935,13 @@ class StressFieldCalculator:
     
     def _extract_interface_shear_profile(self, u: np.ndarray) -> Dict:
         """Extrait le profil de cisaillement à l'interface"""
+        print(f"\nDÉBUG _extract_interface_shear_profile:")
+        print(f"  - mesh.params.czm_mesh = {self.mesh.params.czm_mesh}")
+        print(f"  - Nombre d'éléments cohésifs = {len(self.mesh.cohesive_elements)}")
+    
+        if not self.mesh.params.czm_mesh or len(self.mesh.cohesive_elements) == 0:
+            print("  - Pas de zones cohésives, retour de listes vides")
+            return {'x': np.array([]), 'shear': np.array([])}
         from cohesive_zone import CohesiveZoneManager
         cohesive = CohesiveZoneManager(self.materials, self.mesh)
         
