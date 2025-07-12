@@ -8,21 +8,13 @@ PF-CZM FEM is a sophisticated finite element simulation framework that combines 
 
 ### Physics Modeling
 - **Hybrid Fracture Model**: Combines Phase Field method for bulk fracture with Cohesive Zone Model for interface delamination
-- **Multi-material System**: Handles ice-substrate systems with distinct material properties
-- **Centrifugal Loading**: Simulates rotational forces typical in turbomachinery applications
-- **Spectral Decomposition**: Optional stress decomposition for more accurate fracture predictions
+- **Two-material System**: Handles ice-substrate systems with distinct material properties
+- **Centrifugal Loading**: Simulates distributed forces typical in turbomachinery applications
 
 ### Numerical Methods
 - **HHT-α Time Integration**: Robust implicit time stepping with numerical damping
 - **Staggered Scheme**: Alternating minimization between mechanical and damage fields
 - **Adaptive Time Stepping**: Automatic adjustment based on convergence and damage evolution
-- **Progressive Mesh Coarsening**: Optimized mesh density for computational efficiency
-
-### Advanced Capabilities
-- **Interface Integration**: Gauss-Lobatto or Newton-Cotes quadrature for cohesive elements
-- **Damage Irreversibility**: Ensures physical consistency of fracture evolution
-- **Energy Monitoring**: Tracks elastic, fracture, kinetic, and interface energies
-- **Comprehensive Visualization**: Real-time plotting and post-processing capabilities
 
 ## 📦 Installation
 
@@ -65,7 +57,7 @@ model, results = run_simulation(
     ny_ice=10,                 # Elements in ice layer
     ny_substrate=5,            # Elements in substrate
     T=1.0,                     # Total simulation time
-    omega=830.1135,            # Angular velocity (rad/s)
+    omega=500.0,            # Angular velocity (rad/s)
     czm_mesh=True,             # Enable cohesive zones
     save_plots=True            # Save visualization
 )
@@ -78,13 +70,14 @@ python launch.py
 
 ### Command line interface
 ```bash
-python main_file.py --nx 250 --total-time 1.0 --stress-decomposition
+python main_file.py --nx 200 --total-time 1.0 --stress-decomposition
 ```
 
 ## 📁 Project Structure
 
 ```
 pf-czm-fem/
+├── results/                 # Results repository (stress plot, nodal bulk damage and displacement, bulk and interface damage at gauss point)
 ├── model.py                 # Main model class and simulation orchestration
 ├── mesh.py                  # Mesh generation and cohesive element management
 ├── materials.py             # Material properties and constitutive models
@@ -103,10 +96,10 @@ pf-czm-fem/
 
 ### Mesh Parameters
 ```python
-length = 170.0               # Domain length (mm)
+length = 150.0               # Domain length (mm)
 ice_height = 6.4             # Ice layer thickness (mm)
 substrate_height = 6.4       # Substrate thickness (mm)
-nx = 250                     # Elements in x-direction
+nx = 200                     # Elements in x-direction
 ny_ice = 10                  # Elements in ice layer
 ny_substrate = 5             # Elements in substrate
 ```
@@ -114,7 +107,7 @@ ny_substrate = 5             # Elements in substrate
 ### Material Properties
 ```python
 # Ice
-E_ice = 1500.0               # Young's modulus (MPa)
+E_ice = 9000.0               # Young's modulus (MPa)
 nu_ice = 0.31                # Poisson's ratio
 Gc_ice = 0.001               # Fracture energy (N/mm)
 
@@ -164,7 +157,7 @@ custom_ice = MaterialProperties(
 )
 ```
 
-### Adaptive Mesh Refinement
+### Adaptive Mesh Refinement near-edge singularity
 ```python
 model = IceSubstratePhaseFieldFracture(
     use_coarse_near_bc=True,
@@ -189,12 +182,6 @@ G = model.phase_field_solver.compute_energy_release_rate(
 )
 ```
 
-## 📈 Performance Considerations
-
-- **Mesh Resolution**: Higher resolution improves accuracy but increases computational cost
-- **Time Step**: Adaptive stepping balances accuracy and efficiency
-- **Cohesive Integration**: 2-point Gauss-Lobatto is usually sufficient
-- **Parallel Execution**: Use MPI for large-scale simulations
 
 ## 🤝 Contributing
 
@@ -203,22 +190,9 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 ## 📚 References
 
 1. Bourdin, B., Francfort, G. A., & Marigo, J. J. (2008). The variational approach to fracture.
-2. Park, K., & Paulino, G. H. (2011). Cohesive zone models: a critical review of traction-separation relationships.
-3. Ambati, M., Gerasimov, T., & De Lorenzis, L. (2015). Phase-field modeling of ductile fracture.
+2. Johann Rannou, Christophe Bovet. Domain decomposition methods and acceleration techniques for the phase field fracture staggered solver. International Journal for Numerical Methods in Engineering, 2023, ⟨10.1002/nme.7544⟩. ⟨hal-03938084v2⟩
 
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 👥 Authors
 
-- Your Name - Initial work - [YourGithub](https://github.com/yourusername)
-
-## 🙏 Acknowledgments
-
-- Inspired by phase field fracture implementations in the computational mechanics community
-- Special thanks to contributors and testers
-
----
-
-For more information, please refer to the [documentation](docs/) or contact the maintainers.
+- Dorian Nezzar - https://github.com/DNezzar/PF_CZM
