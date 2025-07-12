@@ -9,8 +9,8 @@ from model import IceSubstratePhaseFieldFracture
 # ============================================================
 
 # --- Paramètres du maillage ---
-nx = 250                   # Nombre d'éléments en X
-ny_ice = 10                 # Nombre d'éléments dans la glace
+nx = 150                   # Nombre d'éléments en X
+ny_ice = 5                 # Nombre d'éléments dans la glace
 ny_substrate = 5            # Nombre d'éléments dans le substrat
 length = 170.0              # Longueur du domaine (mm)
 ice_height = 6.4            # Hauteur de la couche de glace (mm)
@@ -74,7 +74,7 @@ dt_max = 1.0e-2             # Pas de temps maximal
 max_newton_iter = 5         # Itérations Newton max
 newton_tol = 5.0e-5         # Tolérance Newton
 max_staggered_iter = 5     # Itérations décalées max
-staggered_tol = 5.0e-3      # Tolérance schéma décalé
+staggered_tol = 1.0e-2      # Tolérance schéma décalé
 alpha_HHT = 0.05           # Paramètre HHT-alpha --> alpha [0;1/3]
 
 # --- Paramètres d'adaptation du pas de temps ---
@@ -89,8 +89,8 @@ staggered_iter_fast = 1            # Convergence rapide si <= ce seuil
 staggered_iter_slow = 5            # Convergence lente si >= ce seuil
 
 # Seuils d'endommagement
-damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
-interface_damage_threshold = 0.8   # Seuil d'évolution rapide (interface)
+damage_threshold = 0.9             # Seuil d'évolution rapide (volume)
+interface_damage_threshold = 0.9   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
 use_stress_decomposition = False   # Décomposition spectrale
