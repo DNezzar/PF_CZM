@@ -1,6 +1,6 @@
 """
 Module des solveurs pour le modèle PF-CZM
-Inclut les solveurs HHT-alpha, Newton-Raphson et le schéma décalé
+Inclut les solveurs HHT-alpha, Newton-Raphson et le schéma alterné
 """
 
 import numpy as np
@@ -20,7 +20,7 @@ class SolverParameters:
     max_newton_iter: int = 5
     newton_tol: float = 1.0e-4
     
-    # Schéma décalé
+    # Schéma alterné
     max_staggered_iter: int = 10
     staggered_tol: float = 1.0e-2
     keep_previous_staggered: bool = True  # Option pour garder la solution précédente convergée
@@ -107,9 +107,9 @@ class HHTAlphaSolver:
         
         # Adapter la tolérance selon dt (pour petits pas de temps)
         adaptive_tol = self.params.newton_tol
-        if dt < 1e-4:
-            adaptive_tol = min(1e-2, self.params.newton_tol * 100)
-            print(f"    Tolérance adaptée: {adaptive_tol:.3e} (dt petit)")
+        #if dt < 1e-4:
+        #    adaptive_tol = min(1e-2, self.params.newton_tol * 100)
+        #    print(f"    Tolérance adaptée: {adaptive_tol:.3e} (dt petit)")
         
         # Itérations de Newton-Raphson
         for newton_iter in range(self.params.max_newton_iter):
@@ -269,7 +269,7 @@ class HHTAlphaSolver:
 
 
 class StaggeredSolver:
-    """Solveur utilisant un schéma décalé pour le couplage mécanique-endommagement"""
+    """Solveur utilisant un schéma alterné pour le couplage mécanique-endommagement"""
     
     def __init__(self, mechanical_solver: HHTAlphaSolver, phase_field_solver,
                  cohesive_manager, params: SolverParameters):
@@ -288,7 +288,7 @@ class StaggeredSolver:
                          d_prev: np.ndarray, time: float, dt: float,
                          loading_params) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict]:
         """
-        Résout un pas de temps couplé avec le schéma décalé
+        Résout un pas de temps couplé avec le schéma alterné
         
         Returns:
             u, v, a, d: Solutions mises à jour
@@ -318,9 +318,9 @@ class StaggeredSolver:
         # Réinitialiser l'état de la dernière convergence
         self.last_converged_state = None
         
-        # Itérations du schéma décalé
+        # Itérations du schéma alterné
         for stag_iter in range(self.params.max_staggered_iter):
-            print(f"  Itération décalée {stag_iter+1}/{self.params.max_staggered_iter}")
+            print(f"  Itération alterné {stag_iter+1}/{self.params.max_staggered_iter}")
             
             # Sauvegarder pour la convergence
             d_old = d.copy()
@@ -375,7 +375,7 @@ class StaggeredSolver:
             if d_residual < self.params.staggered_tol:
                 info['staggered_converged'] = True
                 info['staggered_iterations'] = stag_iter + 1
-                print("    Schéma décalé convergé")
+                print("    Schéma alterné convergé")
                 break
         
         # Si non convergé et keep_previous_staggered activé, restaurer le dernier état convergé
@@ -760,7 +760,7 @@ class MainSolver:
         print(f"  Temps de calcul: {elapsed_time:.2f} s")
         print(f"  Nombre total de pas: {self.step}")
         print(f"  Itérations Newton totales: {results['statistics']['newton_iterations']}")
-        print(f"  Itérations décalées totales: {results['statistics']['staggered_iterations']}")
+        print(f"  Itérations alternées totales: {results['statistics']['staggered_iterations']}")
         print(f"  Résolutions linéaires: {results['statistics']['linear_solves']}")
         print(f"{'='*60}")
         
