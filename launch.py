@@ -38,16 +38,16 @@ Gc_sub = 1.0e+8             # Énergie de rupture (N/mm) - très élevée
 
 # --- Propriétés cohésives de l'interface ---
 czm_mesh = True             # True: utilise des éléments cohésifs, False: maillage classique
-coh_normal_stiffness = 1.0e+4      # Rigidité normale (MPa/mm)
-coh_shear_stiffness = 1.0e+4      # Rigidité en cisaillement (MPa/mm)
+coh_normal_stiffness = 1.0e+8      # Rigidité normale (MPa/mm)
+coh_shear_stiffness = 1.0e+8      # Rigidité en cisaillement (MPa/mm)
 
 # RÉSISTANCES
-coh_normal_strength = 0.4          # Résistance normale (MPa)
-coh_shear_strength = 0.4           # Résistance en cisaillement (MPa)
+coh_normal_strength = 0.4e+6          # Résistance normale (MPa)
+coh_shear_strength = 0.4e+6           # Résistance en cisaillement (MPa)
 
 # ÉNERGIES DE RUPTURE
-coh_normal_Gc = 0.001              # Énergie de rupture normale (N/mm)
-coh_shear_Gc = 0.001               # Énergie de rupture en cisaillement (N/mm)
+coh_normal_Gc = 0.001e+6              # Énergie de rupture normale (N/mm)
+coh_shear_Gc = 0.001e+6               # Énergie de rupture en cisaillement (N/mm)
 
 # AUTRES PARAMÈTRES COHÉSIFS
 coh_compression_factor = 50.0       # Facteur de pénalité en compression
@@ -70,8 +70,8 @@ dt_min = 1.0e-10            # Pas de temps minimal
 dt_max = 1.0e-2             # Pas de temps maximal
 
 # --- Paramètres du solveur ---
-max_newton_iter = 5         # Itérations Newton max
-newton_tol = 5.0e-5         # Tolérance Newton
+max_newton_iter = 30         # Itérations Newton max
+newton_tol = 1.0e-4         # Tolérance Newton
 max_staggered_iter = 5     # Itérations décalées max
 staggered_tol = 1.0e-2      # Tolérance schéma décalé
 alpha_HHT = 0.05           # Paramètre HHT-alpha --> alpha [0;1/3]
@@ -92,7 +92,7 @@ damage_threshold = 0.9             # Seuil d'évolution rapide (volume)
 interface_damage_threshold = 0.9   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
-use_stress_decomposition = False   # Décomposition spectrale
+use_stress_decomposition = True   # Décomposition spectrale
 plane_strain = True              # Déformation plane (vs contrainte plane)
 save_plots = True                # Sauvegarder les graphiques
 display_plots = False            # Afficher les graphiques
