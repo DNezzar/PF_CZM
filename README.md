@@ -57,7 +57,7 @@ model, results = run_simulation(
     ny_ice=10,                 # Elements in ice layer
     ny_substrate=5,            # Elements in substrate
     T=1.0,                     # Total simulation time
-    omega=500.0,            # Angular velocity (rad/s)
+    omega=500.0,               # Angular velocity (rad/s)
     czm_mesh=True,             # Enable cohesive zones
     save_plots=True            # Save visualization
 )
