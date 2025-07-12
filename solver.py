@@ -232,7 +232,8 @@ class HHTAlphaSolver:
         
         # Résidu HHT-alpha
         #residual = (M @ a + (1.0 + alpha) * f_int_curr - alpha * f_int_prev - (1.0 + alpha) * f_ext_curr + alpha * f_ext_prev)
-        residual = (M @ a + (1.0 - alpha) * f_int_curr + alpha * f_int_prev - (1.0 - alpha) * f_ext_curr - alpha * f_ext_prev)
+        #residual = (M @ a + (1.0 - alpha) * f_int_curr + alpha * f_int_prev - (1.0 - alpha) * f_ext_curr - alpha * f_ext_prev)
+        residual = (M @ a + (1.0 + alpha) * f_int_curr - alpha * f_int_prev - (1.0 + alpha) * f_ext_curr + alpha * f_ext_prev)
         
         return residual
     
@@ -578,7 +579,7 @@ class MainSolver:
                 'd': self.model.d.copy(),
                 'time': self.current_time,
                 'step': self.step,
-                'H_gauss': self.model.phase_field_solver.history.H_gauss.copy()
+                #'H_gauss': self.model.phase_field_solver.history.H_gauss.copy()
             }
             
             # Sauvegarder l'endommagement de l'interface si CZM actif
@@ -773,8 +774,8 @@ class MainSolver:
         self.model.a = state_backup['a']
         self.model.d = state_backup['d']
 
-        if 'H_gauss' in state_backup:
-            self.model.phase_field_solver.history.H_gauss = state_backup['H_gauss'].copy()
+        #if 'H_gauss' in state_backup:
+            #self.model.phase_field_solver.history.H_gauss = state_backup['H_gauss'].copy()
         
         if self.model.cohesive_manager and 'interface_damage' in state_backup:
             for i, elem in enumerate(self.model.mesh.cohesive_elements):
