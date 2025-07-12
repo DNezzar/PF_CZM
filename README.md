@@ -33,7 +33,7 @@ cd pf-czm-fem
 pip install -r requirements.txt
 ```
 
-### Optional dependencies for enhanced features
+### Optional dependencies for animation features
 ```bash
 # For animations
 pip install ffmpeg-python imageio
