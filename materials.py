@@ -123,64 +123,32 @@ class MaterialManager:
     
     def get_stiffness_sqrt_matrices(self, E: float, nu: float) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Calcule C^(1/2) et C^(-1/2) pour la décomposition orthogonale SD3
-        Équation (9) de Nguyen et al. (2020)
+        Calcule C^(1/2) et C^(-1/2) par décomposition propre
+        Plus robuste mais plus coûteux
         """
-        cache_key = (E, nu)
+        # Construire la matrice de rigidité C
+        C = self._compute_constitutive_matrix(E, nu)
         
-        # Vérifier le cache
-        if cache_key in self._sqrt_cache:
-            C_sqrt, C_inv_sqrt = self._sqrt_cache[cache_key]
-            return C_sqrt.copy(), C_inv_sqrt.copy()
+        # Décomposition propre de C
+        eigenvalues, eigenvectors = np.linalg.eigh(C)
         
-        # Validation des entrées
-        if E <= 0:
-            raise ValueError(f"Le module de Young doit être positif, reçu {E}")
+        # Vérifier que toutes les valeurs propres sont positives
+        if np.any(eigenvalues <= 0):
+            raise ValueError(f"Matrice de rigidité non définie positive: valeurs propres = {eigenvalues}")
         
-        if nu >= 0.5:
-            print(f"Attention: Coefficient de Poisson {nu} >= 0.5 (limite incompressible)")
-            nu = 0.495
-        elif nu <= -1.0:
-            raise ValueError(f"Coefficient de Poisson invalide {nu} <= -1.0")
+        # Construire C^(1/2)
+        sqrt_eigenvalues = np.sqrt(eigenvalues)
+        C_sqrt = eigenvectors @ np.diag(sqrt_eigenvalues) @ eigenvectors.T
         
-        # Calcul des modules
-        kappa = E / (3.0 * (1.0 - 2.0 * nu))  # Module de compressibilité
-        mu = E / (2.0 * (1.0 + nu))           # Module de cisaillement
-        
-        # Vérification des modules positifs
-        if kappa <= 0 or mu <= 0:
-            raise ValueError(f"Paramètres matériaux invalides: kappa={kappa}, mu={mu}")
-        
-        # C^(1/2) selon l'équation (9) de l'article
-        sqrt_kappa = np.sqrt(kappa)
-        sqrt_mu = np.sqrt(mu)
-        sqrt_2mu = np.sqrt(2.0 * mu)
-        
-        C_sqrt = np.array([
-            [sqrt_kappa/2.0 + sqrt_mu/2.0, sqrt_kappa/2.0 - sqrt_mu/2.0, 0.0],
-            [sqrt_kappa/2.0 - sqrt_mu/2.0, sqrt_kappa/2.0 + sqrt_mu/2.0, 0.0],
-            [0.0, 0.0, sqrt_2mu]
-        ], dtype=np.float64)
-        
-        # C^(-1/2) selon l'équation (9) de l'article
-        inv_sqrt_2kappa = 1.0 / np.sqrt(2.0 * kappa)
-        inv_sqrt_2mu = 1.0 / np.sqrt(2.0 * mu)
-        inv_sqrt_mu = 1.0 / sqrt_mu
-        
-        C_inv_sqrt = np.array([
-            [inv_sqrt_2kappa + inv_sqrt_2mu, inv_sqrt_2kappa - inv_sqrt_2mu, 0.0],
-            [inv_sqrt_2kappa - inv_sqrt_2mu, inv_sqrt_2kappa + inv_sqrt_2mu, 0.0],
-            [0.0, 0.0, inv_sqrt_mu]
-        ], dtype=np.float64)
+        # Construire C^(-1/2)
+        inv_sqrt_eigenvalues = 1.0 / sqrt_eigenvalues
+        C_inv_sqrt = eigenvectors @ np.diag(inv_sqrt_eigenvalues) @ eigenvectors.T
         
         # Vérification
         identity_check = C_sqrt @ C_inv_sqrt
         error = np.linalg.norm(identity_check - np.eye(3))
         if error > 1e-10:
             print(f"Attention: C_sqrt @ C_inv_sqrt dévie de l'identité de {error:.2e}")
-        
-        # Stocker dans le cache
-        self._sqrt_cache[cache_key] = (C_sqrt.copy(), C_inv_sqrt.copy())
         
         return C_sqrt, C_inv_sqrt
     
