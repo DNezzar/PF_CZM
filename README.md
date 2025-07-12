@@ -2,7 +2,7 @@
 
 ## 📋 Description
 
-PF-CZM FEM is a sophisticated finite element simulation framework that combines Phase Field fracture modeling with Cohesive Zone modeling to simulate the delamination of ice from a substrate under centrifugal loading. This model is particularly relevant for understanding ice shedding in aerospace applications, wind turbines, and other engineering systems where ice accumulation is a concern.
+PF-CZM FEM is a finite element simulation framework that combines Phase Field fracture modeling with Cohesive Zone modeling to simulate the detachement and delamination of ice from a substrate under centrifugal loading. This model is particularly relevant for understanding ice shedding in aerospace applications, wind turbines, and other engineering systems where ice accretion is a concern.
 
 ## 🚀 Key Features
 
