@@ -1,11 +1,11 @@
 """
 Package PF-CZM FEM pour la simulation de rupture par champ de phase
-avec modèle de zone cohésive
+avec modèle de zones cohésives
 """
 
 __version__ = "1.0.0"
-__author__ = "Votre nom"
-__email__ = "votre.email@example.com"
+__author__ = "Dorian Nezzar"
+__email__ = "dorian.nezzar@hotmail.fr"
 
 # Import des classes et fonctions principales
 from .model import IceSubstratePhaseFieldFracture, run_simulation
