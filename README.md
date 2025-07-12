@@ -1,4 +1,4 @@
-# PF-CZM FEM: Phase Field - Cohesive Zone Model for Ice-Substrate Delamination
+# PF-CZM FEM: Phase Field - Cohesive Zone Model for Ice-Substrate Shedding
 
 ## 📋 Description
 
