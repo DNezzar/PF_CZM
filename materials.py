@@ -52,13 +52,6 @@ class CohesiveProperties:
         # deltac = 2 * Gc / sigma_c (rupture complète)
         self.normal_deltac = 2.0 * self.normal_Gc / self.normal_strength
         self.shear_deltac = 2.0 * self.shear_Gc / self.shear_strength
-        
-        # Afficher les valeurs pour vérification
-        #print(f"Propriétés cohésives calculées:")
-        #print(f"  Mode I: δ₀ᴺ = {self.normal_delta0:.6f} mm, δᶜᴺ = {self.normal_deltac:.6f} mm")
-        #print(f"  Mode II: δ₀ᵀ = {self.shear_delta0:.6f} mm, δᶜᵀ = {self.shear_deltac:.6f} mm")
-        #print(f"  Ratio δᶜ/δ₀: Normal = {self.normal_deltac/self.normal_delta0:.1f}, "
-        #      f"Shear = {self.shear_deltac/self.shear_delta0:.1f}")
 
 
 class MaterialManager:
@@ -130,8 +123,8 @@ class MaterialManager:
     
     def get_stiffness_sqrt_matrices(self, E: float, nu: float) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Calcule C^(1/2) et C^(-1/2) pour la décomposition orthogonale
-        Utilise un cache pour éviter les recalculs
+        Calcule C^(1/2) et C^(-1/2) pour la décomposition orthogonale SD3
+        Équation (9) de Nguyen et al. (2020)
         """
         cache_key = (E, nu)
         
@@ -158,12 +151,7 @@ class MaterialManager:
         if kappa <= 0 or mu <= 0:
             raise ValueError(f"Paramètres matériaux invalides: kappa={kappa}, mu={mu}")
         
-        # Régularisation pour un module de compressibilité très grand
-        if kappa > 1e10:
-            print(f"Attention: Module de compressibilité très grand {kappa:.2e}, régularisation appliquée")
-            kappa = 1e10
-        
-        # C^(1/2)
+        # C^(1/2) selon l'équation (9) de l'article
         sqrt_kappa = np.sqrt(kappa)
         sqrt_mu = np.sqrt(mu)
         sqrt_2mu = np.sqrt(2.0 * mu)
@@ -174,7 +162,7 @@ class MaterialManager:
             [0.0, 0.0, sqrt_2mu]
         ], dtype=np.float64)
         
-        # C^(-1/2)
+        # C^(-1/2) selon l'équation (9) de l'article
         inv_sqrt_2kappa = 1.0 / np.sqrt(2.0 * kappa)
         inv_sqrt_2mu = 1.0 / np.sqrt(2.0 * mu)
         inv_sqrt_mu = 1.0 / sqrt_mu
@@ -252,7 +240,7 @@ class MaterialManager:
 
 
 class SpectralDecomposition:
-    """Classe pour la décomposition spectrale orthogonale"""
+    """Classe pour la décomposition spectrale orthogonale SD3"""
     
     def __init__(self, material_manager: MaterialManager):
         self.material_manager = material_manager
@@ -261,8 +249,9 @@ class SpectralDecomposition:
     def decompose(self, strain_vector: np.ndarray, E: float, nu: float, 
                   verif: bool = False, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Décomposition spectrale orthogonale de la déformation
-        
+        Décomposition spectrale orthogonale de la déformation (SD3)
+        Basée sur He and Shao (2019) - implémentée dans Nguyen et al. (2020)
+
         Returns:
             strain_pos: Partie positive de la déformation
             strain_neg: Partie négative de la déformation
@@ -275,7 +264,7 @@ class SpectralDecomposition:
             zero_strain = np.zeros_like(strain_vector)
             identity = np.eye(3, dtype=np.float64)
             return zero_strain, zero_strain, identity, identity
-        
+
         # Vérifier les petites déformations
         strain_norm = np.linalg.norm(strain_vector)
         if strain_norm < self.ZERO_TOL:
@@ -284,7 +273,7 @@ class SpectralDecomposition:
             zero_strain = np.zeros_like(strain_vector)
             identity = np.eye(3, dtype=np.float64)
             return zero_strain, zero_strain, identity, identity
-        
+
         try:
             # Obtenir les matrices racines carrées
             C_sqrt, C_inv_sqrt = self.material_manager.get_stiffness_sqrt_matrices(E, nu)
@@ -293,144 +282,105 @@ class SpectralDecomposition:
             half_strain = strain_vector * 0.5
             identity = np.eye(3, dtype=np.float64)
             return half_strain, half_strain, identity, identity
-        
+
         # Transformer la déformation: ε̃ = C^(1/2) : ε
         strain_tilde = C_sqrt @ strain_vector
-        
+
         if debug:
             print(f"Déformation originale: {strain_vector}")
             print(f"Déformation transformée: {strain_tilde}")
-        
-        # Convertir en forme tensorielle
-        strain_tilde_tensor = np.array([
-            [strain_tilde[0], strain_tilde[2]/2.0],
-            [strain_tilde[2]/2.0, strain_tilde[1]]
-        ], dtype=np.float64)
-        
-        # Calcul des valeurs et vecteurs propres
-        eigenvalues, eigenvectors, E1_tilde, E2_tilde = self._compute_eigendecomposition(
-            strain_tilde_tensor, debug
-        )
-        
-        epsilon1_tilde, epsilon2_tilde = eigenvalues
-        
+
+        # Calcul des valeurs propres et décomposition spectrale de ε̃
+        epsilon_tilde_1, epsilon_tilde_2, E_tilde_1, E_tilde_2 = self._compute_eigenvalues_2D(strain_tilde)
+
         # Appliquer les crochets de Macaulay
-        epsilon1_tilde_pos = max(0.0, epsilon1_tilde)
-        epsilon1_tilde_neg = min(0.0, epsilon1_tilde)
-        epsilon2_tilde_pos = max(0.0, epsilon2_tilde)
-        epsilon2_tilde_neg = min(0.0, epsilon2_tilde)
-        
-        # Reconstruire les parties positive et négative
-        strain_tilde_pos_tensor = epsilon1_tilde_pos * E1_tilde + epsilon2_tilde_pos * E2_tilde
-        strain_tilde_neg_tensor = epsilon1_tilde_neg * E1_tilde + epsilon2_tilde_neg * E2_tilde
-        
-        # Convertir en forme vectorielle
-        strain_tilde_pos = np.array([
-            strain_tilde_pos_tensor[0, 0],
-            strain_tilde_pos_tensor[1, 1],
-            2.0 * strain_tilde_pos_tensor[0, 1]
-        ], dtype=np.float64)
-        
-        strain_tilde_neg = np.array([
-            strain_tilde_neg_tensor[0, 0],
-            strain_tilde_neg_tensor[1, 1],
-            2.0 * strain_tilde_neg_tensor[0, 1]
-        ], dtype=np.float64)
-        
-        # Transformer en retour: ε± = C^(-1/2) : ε̃±
+        eps1_tilde_pos = max(0.0, epsilon_tilde_1)
+        eps1_tilde_neg = min(0.0, epsilon_tilde_1)
+        eps2_tilde_pos = max(0.0, epsilon_tilde_2)
+        eps2_tilde_neg = min(0.0, epsilon_tilde_2)
+
+        # Reconstruire les parties positive et négative dans l'espace transformé
+        strain_tilde_pos = eps1_tilde_pos * E_tilde_1 + eps2_tilde_pos * E_tilde_2
+        strain_tilde_neg = eps1_tilde_neg * E_tilde_1 + eps2_tilde_neg * E_tilde_2
+
+        # Retourner à l'espace original: ε± = C^(-1/2) : ε̃±
         strain_pos = C_inv_sqrt @ strain_tilde_pos
         strain_neg = C_inv_sqrt @ strain_tilde_neg
-        
+
         # Calculer les tenseurs de projection
-        P_pos, P_neg = self._compute_projection_tensors(
-            E1_tilde, E2_tilde, epsilon1_tilde, epsilon2_tilde, C_sqrt, C_inv_sqrt
+        P_pos, P_neg = self._compute_projection_tensors_SD3(
+            E_tilde_1, E_tilde_2, epsilon_tilde_1, epsilon_tilde_2, 
+            C_sqrt, C_inv_sqrt
         )
-        
+
         # Vérification si demandée
         if verif or debug:
             self._verify_decomposition(strain_vector, strain_pos, strain_neg, 
                                      P_pos, P_neg, E, nu, debug)
-        
-        return strain_pos, strain_neg, P_pos, P_neg
+
+        return strain_pos, strain_neg, P_pos, P_neg    
     
-    def _compute_eigendecomposition(self, tensor: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Calcule la décomposition en valeurs propres"""
-        try:
-            # Utiliser eigh pour les matrices symétriques (plus stable)
-            eigenvalues, eigenvectors = np.linalg.eigh(tensor)
-            epsilon1 = eigenvalues[0]
-            epsilon2 = eigenvalues[1]
-            
-            # Trier les valeurs propres
-            if epsilon1 > epsilon2:
-                epsilon1, epsilon2 = epsilon2, epsilon1
-                eigenvectors = eigenvectors[:, [1, 0]]
-            
-            # Reconstruire les projecteurs propres
-            v1 = eigenvectors[:, 0].reshape(-1, 1)
-            v2 = eigenvectors[:, 1].reshape(-1, 1)
-            E1 = v1 @ v1.T
-            E2 = v2 @ v2.T
-            
-            if debug:
-                print(f"Utilisation de numpy.linalg.eigh")
-                print(f"Valeurs propres: {epsilon1}, {epsilon2}")
-            
-            return np.array([epsilon1, epsilon2]), eigenvectors, E1, E2
-            
-        except Exception as e:
-            if debug:
-                print(f"numpy.linalg.eigh a échoué: {e}, utilisation de la méthode analytique")
-            
-            # Méthode analytique de secours
-            I1 = tensor[0,0] + tensor[1,1]  # Trace
-            I2 = tensor[0,0] * tensor[1,1] - tensor[0,1] * tensor[1,0]  # Déterminant
-            
-            delta = I1**2 - 4.0*I2
-            delta = max(0.0, delta)
-            sqrt_delta = np.sqrt(delta)
-            
-            epsilon1 = (I1 - sqrt_delta) / 2.0
-            epsilon2 = (I1 + sqrt_delta) / 2.0
-            
-            # Calcul des projecteurs propres
-            eigenvalue_diff = epsilon2 - epsilon1
-            tol = 1e-10 * max(abs(epsilon1), abs(epsilon2), 1.0)
-            
-            if abs(eigenvalue_diff) > tol:
-                E1 = (tensor - epsilon2 * np.eye(2)) / eigenvalue_diff
-                E2 = np.eye(2) - E1
-            else:
-                E1 = np.array([[1.0, 0.0], [0.0, 0.0]], dtype=np.float64)
-                E2 = np.array([[0.0, 0.0], [0.0, 1.0]], dtype=np.float64)
-            
-            return np.array([epsilon1, epsilon2]), None, E1, E2
+    def _compute_eigenvalues_2D(self, strain_tilde: np.ndarray) -> Tuple[float, float, np.ndarray, np.ndarray]:
+        """
+        Calcule les valeurs propres et projecteurs propres pour la déformation transformée ε̃
+        en notation de Voigt
+        """
+        # Invariants de ε̃ (notation de Voigt)
+        I1 = strain_tilde[0] + strain_tilde[1]  # trace
+        I2 = strain_tilde[0] * strain_tilde[1] - 0.25 * strain_tilde[2]**2  # déterminant
+
+        # Discriminant
+        discriminant = I1**2 - 4.0 * I2
+
+        if discriminant < 0:
+            discriminant = 0.0
+
+        sqrt_disc = np.sqrt(discriminant)
+
+        # Valeurs propres
+        epsilon1 = 0.5 * (I1 + sqrt_disc)
+        epsilon2 = 0.5 * (I1 - sqrt_disc)
+
+        # Cas où les valeurs propres sont distinctes
+        if abs(epsilon1 - epsilon2) > self.ZERO_TOL:
+            # Projecteur E1 en notation de Voigt
+            E1 = np.zeros(3, dtype=np.float64)
+            E1[0] = (strain_tilde[0] - epsilon2) / (epsilon1 - epsilon2)
+            E1[1] = (strain_tilde[1] - epsilon2) / (epsilon1 - epsilon2)
+            E1[2] = strain_tilde[2] / (epsilon1 - epsilon2)
+
+            # Projecteur E2 = I - E1
+            E2 = np.array([1.0 - E1[0], 1.0 - E1[1], -E1[2]], dtype=np.float64)
+        else:
+            # Valeurs propres égales - identité décomposée
+            E1 = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+            E2 = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+        return epsilon1, epsilon2, E1, E2    
     
-    def _compute_projection_tensors(self, E1: np.ndarray, E2: np.ndarray, 
-                                   epsilon1: float, epsilon2: float,
-                                   C_sqrt: np.ndarray, C_inv_sqrt: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Calcule les tenseurs de projection dans l'espace original"""
-        # Convertir les projecteurs propres en notation de Voigt
-        E1_voigt = np.array([E1[0,0], E1[1,1], 2.0*E1[0,1]], dtype=np.float64)
-        E2_voigt = np.array([E2[0,0], E2[1,1], 2.0*E2[0,1]], dtype=np.float64)
-        
-        # Initialiser les tenseurs de projection
+    def _compute_projection_tensors_SD3(self, E1: np.ndarray, E2: np.ndarray, 
+                                       epsilon1: float, epsilon2: float,
+                                       C_sqrt: np.ndarray, C_inv_sqrt: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Calcule les tenseurs de projection dans l'espace original selon SD3
+        """
+        # Initialiser les tenseurs de projection dans l'espace transformé
         P_tilde_pos = np.zeros((3, 3), dtype=np.float64)
         P_tilde_neg = np.zeros((3, 3), dtype=np.float64)
-        
-        # Projection positive
+
+        # Construire les projecteurs dans l'espace transformé
         if epsilon1 > 0:
-            P_tilde_pos += np.outer(E1_voigt, E1_voigt)
+            P_tilde_pos += np.outer(E1, E1)
+        else:
+            P_tilde_neg += np.outer(E1, E1)
+
         if epsilon2 > 0:
-            P_tilde_pos += np.outer(E2_voigt, E2_voigt)
-        
-        # Projection négative
-        if epsilon1 < 0:
-            P_tilde_neg += np.outer(E1_voigt, E1_voigt)
-        if epsilon2 < 0:
-            P_tilde_neg += np.outer(E2_voigt, E2_voigt)
-        
-        # Corriger pour la déformation d'ingénieur
+            P_tilde_pos += np.outer(E2, E2)
+        else:
+            P_tilde_neg += np.outer(E2, E2)
+
+        # Corriger pour la notation de Voigt (terme de cisaillement)
+        # Les termes hors diagonale doivent être divisés par 2
         for i in range(2):
             P_tilde_pos[i, 2] *= 0.5
             P_tilde_pos[2, i] *= 0.5
@@ -438,19 +388,12 @@ class SpectralDecomposition:
             P_tilde_neg[2, i] *= 0.5
         P_tilde_pos[2, 2] *= 0.25
         P_tilde_neg[2, 2] *= 0.25
-        
+
         # Transformer les tenseurs de projection dans l'espace original
+        # P± = C^(-1/2) : P̃± : C^(1/2)
         P_pos = C_inv_sqrt @ P_tilde_pos @ C_sqrt
         P_neg = C_inv_sqrt @ P_tilde_neg @ C_sqrt
-        
-        # S'assurer que les propriétés de projection sont respectées
-        P_sum = P_pos + P_neg
-        identity_error = np.linalg.norm(P_sum - np.eye(3))
-        if identity_error > 1e-8:
-            # Normaliser pour assurer la somme à l'identité
-            P_pos = P_pos / P_sum * np.eye(3)
-            P_neg = P_neg / P_sum * np.eye(3)
-        
+
         return P_pos, P_neg
     
     def _verify_decomposition(self, strain: np.ndarray, strain_pos: np.ndarray, 
