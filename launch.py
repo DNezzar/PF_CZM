@@ -16,8 +16,6 @@ length = 170.0              # Longueur du domaine (mm)
 ice_height = 6.4            # Hauteur de la couche de glace (mm)
 substrate_height = 6.4      # Hauteur du substrat (mm)
 
-# --- NOUVEAU: Activation des zones cohésives ---
-czm_mesh = False             # True: utilise des éléments cohésifs, False: maillage classique
 
 # --- Paramètres de maillage progressif ---
 use_coarse_near_bc = True   # Activer le maillage grossier près de l'encastrement
@@ -39,16 +37,17 @@ rho_sub = 2.7e-9            # Densité (ton/mm³)
 Gc_sub = 1.0e+8             # Énergie de rupture (N/mm) - très élevée
 
 # --- Propriétés cohésives de l'interface ---
+czm_mesh = True             # True: utilise des éléments cohésifs, False: maillage classique
 coh_normal_stiffness = 1.0e+4      # Rigidité normale (MPa/mm)
 coh_shear_stiffness = 1.0e+4      # Rigidité en cisaillement (MPa/mm)
 
 # RÉSISTANCES
-coh_normal_strength = 0.2          # Résistance normale (MPa)
-coh_shear_strength = 0.2           # Résistance en cisaillement (MPa)
+coh_normal_strength = 0.4          # Résistance normale (MPa)
+coh_shear_strength = 0.4           # Résistance en cisaillement (MPa)
 
 # ÉNERGIES DE RUPTURE
-coh_normal_Gc = 0.00025              # Énergie de rupture normale (N/mm)
-coh_shear_Gc = 0.00025               # Énergie de rupture en cisaillement (N/mm)
+coh_normal_Gc = 0.001              # Énergie de rupture normale (N/mm)
+coh_shear_Gc = 0.001               # Énergie de rupture en cisaillement (N/mm)
 
 # AUTRES PARAMÈTRES COHÉSIFS
 coh_compression_factor = 50.0       # Facteur de pénalité en compression
