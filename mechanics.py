@@ -42,114 +42,78 @@ class ElementMatrices:
         self._B_cache = {}
         self._detJ_cache = {}
     
-    def get_stiffness_matrix(self, elem_id: int, u: np.ndarray, d: np.ndarray,
-                           P_pos_prev: List[np.ndarray] = None,
-                           P_neg_prev: List[np.ndarray] = None,
-                           use_decomposition: bool = False) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
+    def get_stiffness_matrix(self, elem_id: int, u: np.ndarray, u_prev: np.ndarray,
+                           d: np.ndarray, use_decomposition: bool = False) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
         """
-        Calcule la matrice de rigidité élémentaire avec décomposition spectrale cohérente
-        
+        Calcule la matrice de rigidité élémentaire selon l'équation (26)
+
         Parameters:
             elem_id: Identifiant de l'élément
-            u: Déplacements nodaux
+            u: Déplacements actuels (pour l'itération courante)
+            u_prev: Déplacements du pas de temps précédent
             d: Endommagement nodal
-            P_pos_prev: Projecteurs positifs du pas précédent (utilisés pour initialisation si nécessaire)
-            P_neg_prev: Projecteurs négatifs du pas précédent (utilisés pour initialisation si nécessaire)
             use_decomposition: Utiliser la décomposition spectrale
-            
-        Returns:
-            K_elem: Matrice de rigidité 8x8
-            P_pos_new: Nouveaux projecteurs positifs (pour initialisation du pas suivant)
-            P_neg_new: Nouveaux projecteurs négatifs (pour initialisation du pas suivant)
         """
         # Récupérer les données de l'élément
         element_nodes = self.mesh.elements[elem_id]
         x_coords = self.mesh.nodes[element_nodes, 0]
         y_coords = self.mesh.nodes[element_nodes, 1]
-        
-        # Déplacements élémentaires
-        u_elem = self._extract_element_displacements(element_nodes, u)
-        
+
         # Propriétés matériaux
         mat_props = self.materials.get_properties(self.mesh.material_id[elem_id])
         D = self.materials.get_constitutive_matrix(self.mesh.material_id[elem_id])
-        
+
         # Initialiser la matrice de rigidité
         K_elem = np.zeros((8, 8), dtype=np.float64)
-        
-        # Listes pour stocker les projecteurs actuels (pour le pas suivant)
-        P_pos_new = []
-        P_neg_new = []
-        
+
+        # Listes pour stocker les projecteurs
+        P_pos_list = []
+        P_neg_list = []
+
         # Intégration sur les points de Gauss
         for gp_idx, (xi, eta) in enumerate(self.gauss_points):
             # Interpoler l'endommagement
             N = self._shape_functions(xi, eta)
             damage_gauss = np.dot(N, d[element_nodes])
             g_d = self.materials.degradation_function(damage_gauss)
-            
+
             # Matrice B et jacobien
             B, detJ = self._get_B_matrix_and_jacobian(elem_id, xi, eta, x_coords, y_coords)
-            
+
             if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
-                # Calculer la déformation actuelle
-                strain = B @ u_elem
-                
-                # Décomposer la déformation actuelle pour obtenir les projecteurs actuels
-                strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
-                    strain, mat_props.E, mat_props.nu
+                # Utiliser les déplacements du PAS PRÉCÉDENT pour les projecteurs
+                u_elem_prev = self._extract_element_displacements(element_nodes, u_prev)
+                strain_prev = B @ u_elem_prev
+
+                # Calculer les projecteurs avec la déformation PRÉCÉDENTE
+                strain_pos_prev, strain_neg_prev, P_pos, P_neg = self.materials.spectral_decomp.decompose(
+                    strain_prev, mat_props.E, mat_props.nu
                 )
-                
-                # CORRECTION : Matrice constitutive dégradée avec décomposition spectrale
-                # Pour la partie positive (endommagée)
-                D_pos = g_d * D
-                # Pour la partie négative (non endommagée)
-                D_neg = D
-                
-                # Méthode stable : Approximation basée sur la trace des projecteurs
-                trace_P_pos = np.trace(P_pos)
-                trace_P_neg = np.trace(P_neg)
-                
-                # Facteur de dégradation effectif
-                effective_degradation = g_d * (trace_P_pos / 3.0) + (trace_P_neg / 3.0)
-                
-                # Pour la stabilité, on utilise :
-                D_degraded = effective_degradation * D
-                
-                # Alternative plus rigoureuse mais potentiellement moins stable :
-                # # Contribution de la partie positive (endommagée)
-                # K_pos_contrib = np.zeros((3, 3))
-                # for i in range(3):
-                #     for j in range(3):
-                #         for k in range(3):
-                #             for l in range(3):
-                #                 K_pos_contrib[i, j] += g_d * P_pos[i, k] * D[k, l] * P_pos[l, j]
-                # 
-                # # Contribution de la partie négative (non endommagée)
-                # K_neg_contrib = np.zeros((3, 3))
-                # for i in range(3):
-                #     for j in range(3):
-                #         for k in range(3):
-                #             for l in range(3):
-                #                 K_neg_contrib[i, j] += P_neg[i, k] * D[k, l] * P_neg[l, j]
-                # 
-                # # Matrice tangente totale
-                # D_degraded = K_pos_contrib + K_neg_contrib
-                
-                # Sauvegarder les projecteurs pour l'initialisation du pas suivant
-                P_pos_new.append(P_pos)
-                P_neg_new.append(P_neg)
-                
+
+                # ÉQUATION (26) : C_{n+1}(d) = g(d) P^+(ε_n) : C : P^+(ε_n) + P^-(ε_n) : C : P^-(ε_n)
+
+                # Méthode efficace utilisant les propriétés des projecteurs
+                # Calculer P+ : C et P- : C
+                P_pos_C = P_pos @ D
+                P_neg_C = P_neg @ D
+
+                # Matrice constitutive dégradée
+                D_degraded = g_d * (P_pos_C.T @ P_pos) + (P_neg_C.T @ P_neg)
+
+                # Sauvegarder les projecteurs
+                P_pos_list.append(P_pos)
+                P_neg_list.append(P_neg)
+
             else:
                 # Sans décomposition spectrale
                 D_degraded = g_d * D
-                P_pos_new.append(np.eye(3))
-                P_neg_new.append(np.eye(3))
-            
+                P_pos_list.append(np.eye(3))
+                P_neg_list.append(np.eye(3))
+
             # Contribution à la matrice de rigidité
             K_elem += B.T @ D_degraded @ B * detJ * self.gauss_weights[gp_idx]
-        
-        return K_elem, P_pos_new, P_neg_new
+
+        return K_elem, P_pos_list, P_neg_list
     
     def get_mass_matrix(self, elem_id: int) -> np.ndarray:
         """
@@ -361,44 +325,44 @@ class SystemAssembler:
             self.P_pos_prev[e] = [np.eye(3, dtype=np.float64) for _ in range(4)]
             self.P_neg_prev[e] = [np.eye(3, dtype=np.float64) for _ in range(4)]
     
-    def assemble_system(self, u: np.ndarray, d: np.ndarray, time: float,
-                       loading_params: LoadingParameters,
+    def assemble_system(self, u: np.ndarray, u_prev: np.ndarray, d: np.ndarray, 
+                       time: float, loading_params: LoadingParameters,
                        use_decomposition: bool = False) -> Tuple[csr_matrix, csr_matrix, np.ndarray]:
         """
         Assemble les matrices et vecteurs du système global
-        
-        Returns:
-            K: Matrice de rigidité globale
-            M: Matrice de masse globale
-            f_ext: Vecteur de forces externes
+
+        Parameters:
+            u: Déplacements actuels (pour l'itération courante)
+            u_prev: Déplacements du pas de temps précédent (pour les projecteurs)
+            d: Endommagement
+            time: Temps actuel
+            loading_params: Paramètres de chargement
+            use_decomposition: Utiliser la décomposition spectrale
         """
         # Initialiser les matrices creuses
         K = lil_matrix((self.mesh.num_dofs_u, self.mesh.num_dofs_u), dtype=np.float64)
         M = lil_matrix((self.mesh.num_dofs_u, self.mesh.num_dofs_u), dtype=np.float64)
         f_ext = np.zeros(self.mesh.num_dofs_u, dtype=np.float64)
-        
+
         # Facteur de charge
         load_factor = loading_params.get_load_factor(time)
-        
+
         # Nouveaux projecteurs pour le pas suivant
         P_pos_new = {}
         P_neg_new = {}
-        
+
         # Assembler les éléments quadrilatéraux
         for e in range(self.mesh.num_elements):
             # DOFs globaux
             element_nodes = self.mesh.elements[e]
             dofs = self._get_element_dofs(element_nodes)
-            
-            # Matrices élémentaires
+
+            # Matrices élémentaires avec u_prev pour l'équation (26)
             K_elem, P_pos_elem, P_neg_elem = self.elem_matrices.get_stiffness_matrix(
-                e, u, d, 
-                self.P_pos_prev.get(e), 
-                self.P_neg_prev.get(e),
-                use_decomposition
+                e, u, u_prev, d, use_decomposition
             )
             M_elem = self.elem_matrices.get_mass_matrix(e)
-            
+
             # Forces centrifuges
             if loading_params.load_type == 'centrifugal':
                 f_elem = self.elem_matrices.get_centrifugal_force(
@@ -406,47 +370,47 @@ class SystemAssembler:
                 )
             else:
                 f_elem = np.zeros(8)
-            
+
             # Assembler dans les matrices globales
             for i in range(8):
                 for j in range(8):
                     K[dofs[i], dofs[j]] += K_elem[i, j]
                     M[dofs[i], dofs[j]] += M_elem[i, j]
                 f_ext[dofs[i]] += f_elem[i]
-            
+
             # Stocker les nouveaux projecteurs
             P_pos_new[e] = P_pos_elem
             P_neg_new[e] = P_neg_elem
-        
+
         # Assembler les éléments cohésifs
         if self.cohesive is not None:
             for i, cohesive_elem in enumerate(self.mesh.cohesive_elements):
                 # Matrice de rigidité cohésive
                 K_coh = self.cohesive.get_cohesive_stiffness(i, u)
-                
+
                 # DOFs cohésifs
                 dofs_coh = self._get_cohesive_dofs(cohesive_elem.nodes)
-                
+
                 # Assembler
                 for i in range(8):
                     for j in range(8):
                         K[dofs_coh[i], dofs_coh[j]] += K_coh[i, j]
-        
+
         # Mettre à jour les projecteurs pour le pas suivant
         self.P_pos_prev = P_pos_new
         self.P_neg_prev = P_neg_new
-        
+
         # Appliquer les conditions aux limites
         bc_dict = self.mesh.get_boundary_conditions()
         self._apply_boundary_conditions(K, M, f_ext, bc_dict)
-        
+
         # Convertir en format CSR pour la résolution
         K = K.tocsr()
         M = M.tocsr()
-        
+
         # Invalider le cache des forces internes
         self._internal_forces_cache = None
-        
+
         return K, M, f_ext
     
     def _get_element_dofs(self, element_nodes: np.ndarray) -> np.ndarray:
@@ -595,7 +559,7 @@ class ResidualCalculator:
         
         # Assembler les matrices au temps n+1
         K_curr, M, f_ext_curr = self.assembler.assemble_system(
-            u, d, time, loading_params, params.get('use_decomposition', False)
+            u, u_prev, d, time, loading_params, params.get('use_decomposition', False)
         )
         
         # Forces internes au temps n+1

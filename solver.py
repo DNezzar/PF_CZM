@@ -117,9 +117,14 @@ class HHTAlphaSolver:
             a = self._compute_acceleration(u, u_prev, v_prev, a_prev, dt)
 
             # Assembler les matrices
+            #K_curr, M, f_ext_curr = self.assembler.assemble_system(
+            #    u, d, time, loading_params, 
+            #    use_decomposition=self.assembler.materials.use_decomposition  
+            #)
+            # Assembler les matrices avec u_prev # CORRECTION
             K_curr, M, f_ext_curr = self.assembler.assemble_system(
-                u, d, time, loading_params, 
-                use_decomposition=self.assembler.materials.use_decomposition  # CORRECTION
+                u, u_prev, d, time, loading_params, 
+                use_decomposition=self.assembler.materials.use_decomposition
             )
 
             # Calculer le résidu
@@ -214,15 +219,15 @@ class HHTAlphaSolver:
                         time: float, dt: float, params: Dict) -> np.ndarray:
         """Calcule le résidu pour le schéma HHT-alpha"""
         alpha = params['alpha_HHT']
-        
+
         # Forces internes au temps n+1
         f_int_curr = K_curr @ u
-        
+
         # Forces au temps précédent si nécessaire
         if abs(alpha) > 1e-10:
             # Recalculer les forces externes au temps précédent
             K_prev, _, f_ext_prev = self.assembler.assemble_system(
-                u_prev, d, time - dt, params['loading_params'], 
+                u_prev, u_prev, d, time - dt, params['loading_params'], 
                 use_decomposition=params.get('use_decomposition', False)
             )
             # Forces internes au temps précédent
@@ -230,14 +235,14 @@ class HHTAlphaSolver:
         else:
             f_int_prev = np.zeros_like(f_int_curr)
             f_ext_prev = np.zeros_like(f_ext_curr)
-        
+
         # Résidu HHT-alpha
         residual = (M @ a + 
                    (1.0 + alpha) * f_int_curr - 
                    alpha * f_int_prev - 
                    (1.0 + alpha) * f_ext_curr + 
                    alpha * f_ext_prev)
-        
+
         return residual
     
     def _compute_effective_stiffness(self, K, M, dt: float):

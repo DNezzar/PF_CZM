@@ -248,7 +248,7 @@ class EnergyCalculator:
                                                       use_decomposition: bool = False) -> np.ndarray:
         """
         Calcule la densité d'énergie de déformation aux points de Gauss d'un élément
-        
+
         Returns:
             Array de 4 valeurs (une par point de Gauss)
         """
@@ -256,74 +256,74 @@ class EnergyCalculator:
         element_nodes = self.mesh.elements[elem_id]
         x_coords = self.mesh.nodes[element_nodes, 0]
         y_coords = self.mesh.nodes[element_nodes, 1]
-        
+
         # Déplacements nodaux
         u_elem = np.zeros(8)
         for i in range(4):
             node = element_nodes[i]
             u_elem[2*i] = u[self.mesh.dof_map_u[node, 0]]
             u_elem[2*i+1] = u[self.mesh.dof_map_u[node, 1]]
-        
+
         # Propriétés matériaux
         mat_props = self.materials.get_properties(self.mesh.material_id[elem_id])
         D = self.materials.get_constitutive_matrix(self.mesh.material_id[elem_id])
-        
+
         # Densités aux points de Gauss
         psi_gauss = np.zeros(4)
-        
+
         # Boucle sur les points de Gauss
         for gp_idx, (xi, eta) in enumerate(self.gauss_points):
             # Matrice B
             B = self._compute_B_matrix(xi, eta, x_coords, y_coords)
-            
+
             # Déformation
             strain = B @ u_elem
-            
+
             if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
                 # Décomposition spectrale SD3 selon l'article
                 strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
                     strain, mat_props.E, mat_props.nu
                 )
-                
+
                 # Énergie positive : ψ⁺ = ½ ε⁺:C:ε⁺
                 stress_pos = D @ strain_pos
                 psi_plus = 0.5 * np.dot(strain_pos, stress_pos)
-                
+
                 psi_gauss[gp_idx] = psi_plus
-                
+
             else:
                 # Sans SD3 : décomposition spectrale simple de la déformation
                 # pour obtenir la partie positive
-                
+
                 # Convertir le vecteur de déformation en tenseur 2x2
                 eps_tensor = np.array([[strain[0], 0.5*strain[2]], 
                                        [0.5*strain[2], strain[1]]])
-                
+
                 # Valeurs propres et vecteurs propres du tenseur de déformation
                 eigenvalues, eigenvectors = np.linalg.eigh(eps_tensor)
-                
+
                 # Partie positive des valeurs propres (Macaulay brackets)
                 eigenvalues_pos = np.maximum(eigenvalues, 0.0)
-                
+
                 # Reconstruire le tenseur de déformation positive
                 eps_pos_tensor = eigenvectors @ np.diag(eigenvalues_pos) @ eigenvectors.T
-                
+
                 # Convertir en vecteur de Voigt
                 strain_pos = np.array([eps_pos_tensor[0,0], 
                                        eps_pos_tensor[1,1], 
                                        2.0*eps_pos_tensor[0,1]])
-                
+
                 # Calculer l'énergie positive : ψ⁺ = ½ ε⁺:C:ε⁺
                 stress_pos = D @ strain_pos
                 psi_plus = 0.5 * np.dot(strain_pos, stress_pos)
-                
+
                 # Appliquer seulement à la glace
                 if self.mesh.material_id[elem_id] == 1:  # Glace
                     psi_gauss[gp_idx] = psi_plus
                 else:
                     # Substrat : pas d'endommagement
                     psi_gauss[gp_idx] = 0.0
-        
+
         return psi_gauss
     
     def _calculate_element_strain_energy(self, elem_id: int, u: np.ndarray,
