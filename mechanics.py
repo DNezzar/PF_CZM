@@ -45,20 +45,22 @@ class ElementMatrices:
     def get_stiffness_matrix(self, elem_id: int, u: np.ndarray, d: np.ndarray,
                            P_pos_prev: List[np.ndarray] = None,
                            P_neg_prev: List[np.ndarray] = None,
-                           use_decomposition: bool = False) -> np.ndarray:
+                           use_decomposition: bool = False) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
         """
-        Calcule la matrice de rigidité élémentaire
+        Calcule la matrice de rigidité élémentaire avec décomposition spectrale cohérente
         
         Parameters:
             elem_id: Identifiant de l'élément
             u: Déplacements nodaux
             d: Endommagement nodal
-            P_pos_prev: Projecteurs positifs du pas précédent
-            P_neg_prev: Projecteurs négatifs du pas précédent
+            P_pos_prev: Projecteurs positifs du pas précédent (utilisés pour initialisation si nécessaire)
+            P_neg_prev: Projecteurs négatifs du pas précédent (utilisés pour initialisation si nécessaire)
             use_decomposition: Utiliser la décomposition spectrale
             
         Returns:
             K_elem: Matrice de rigidité 8x8
+            P_pos_new: Nouveaux projecteurs positifs (pour initialisation du pas suivant)
+            P_neg_new: Nouveaux projecteurs négatifs (pour initialisation du pas suivant)
         """
         # Récupérer les données de l'élément
         element_nodes = self.mesh.elements[elem_id]
@@ -75,7 +77,7 @@ class ElementMatrices:
         # Initialiser la matrice de rigidité
         K_elem = np.zeros((8, 8), dtype=np.float64)
         
-        # Nouvelles listes de projecteurs pour le pas suivant
+        # Listes pour stocker les projecteurs actuels (pour le pas suivant)
         P_pos_new = []
         P_neg_new = []
         
@@ -89,30 +91,54 @@ class ElementMatrices:
             # Matrice B et jacobien
             B, detJ = self._get_B_matrix_and_jacobian(elem_id, xi, eta, x_coords, y_coords)
             
-            if use_decomposition and P_pos_prev is not None:
-                # Décomposition spectrale avec approximation temporelle
-                
-                # Utiliser les projecteurs du pas précédent pour la rigidité
-                P_pos = P_pos_prev[gp_idx]
-                P_neg = P_neg_prev[gp_idx]
-                
-                # Matrice constitutive dégradée (Eq. 26)
-                D_degraded = g_d * (P_pos.T @ D @ P_pos) + (P_neg.T @ D @ P_neg)
-                
-                # Calculer la déformation actuelle pour mettre à jour les projecteurs
+            if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
+                # Calculer la déformation actuelle
                 strain = B @ u_elem
                 
-                # Nouveaux projecteurs pour le pas suivant
-                if hasattr(self.materials, 'spectral_decomp'):
-                    _, _, P_pos_new_gp, P_neg_new_gp = self.materials.spectral_decomp.decompose(
-                        strain, mat_props.E, mat_props.nu
-                    )
-                    P_pos_new.append(P_pos_new_gp)
-                    P_neg_new.append(P_neg_new_gp)
-                else:
-                    # Sans décomposition disponible
-                    P_pos_new.append(np.eye(3))
-                    P_neg_new.append(np.eye(3))
+                # Décomposer la déformation actuelle pour obtenir les projecteurs actuels
+                strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
+                    strain, mat_props.E, mat_props.nu
+                )
+                
+                # CORRECTION : Matrice constitutive dégradée avec décomposition spectrale
+                # Pour la partie positive (endommagée)
+                D_pos = g_d * D
+                # Pour la partie négative (non endommagée)
+                D_neg = D
+                
+                # Méthode stable : Approximation basée sur la trace des projecteurs
+                trace_P_pos = np.trace(P_pos)
+                trace_P_neg = np.trace(P_neg)
+                
+                # Facteur de dégradation effectif
+                effective_degradation = g_d * (trace_P_pos / 3.0) + (trace_P_neg / 3.0)
+                
+                # Pour la stabilité, on utilise :
+                D_degraded = effective_degradation * D
+                
+                # Alternative plus rigoureuse mais potentiellement moins stable :
+                # # Contribution de la partie positive (endommagée)
+                # K_pos_contrib = np.zeros((3, 3))
+                # for i in range(3):
+                #     for j in range(3):
+                #         for k in range(3):
+                #             for l in range(3):
+                #                 K_pos_contrib[i, j] += g_d * P_pos[i, k] * D[k, l] * P_pos[l, j]
+                # 
+                # # Contribution de la partie négative (non endommagée)
+                # K_neg_contrib = np.zeros((3, 3))
+                # for i in range(3):
+                #     for j in range(3):
+                #         for k in range(3):
+                #             for l in range(3):
+                #                 K_neg_contrib[i, j] += P_neg[i, k] * D[k, l] * P_neg[l, j]
+                # 
+                # # Matrice tangente totale
+                # D_degraded = K_pos_contrib + K_neg_contrib
+                
+                # Sauvegarder les projecteurs pour l'initialisation du pas suivant
+                P_pos_new.append(P_pos)
+                P_neg_new.append(P_neg)
                 
             else:
                 # Sans décomposition spectrale

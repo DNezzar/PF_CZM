@@ -281,17 +281,43 @@ class EnergyCalculator:
             
             if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
                 # Décomposition spectrale
-                strain_pos, _, _, _ = self.materials.spectral_decomp.decompose(
+                strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
                     strain, mat_props.E, mat_props.nu
                 )
-                # Contrainte positive
+                
+                # CORRECTION : Calculer correctement l'énergie positive
+                # Méthode 1 : Utiliser directement la déformation positive
                 stress_pos = D @ strain_pos
-                # Densité d'énergie positive
-                psi_gauss[gp_idx] = 0.5 * np.dot(strain_pos, stress_pos)
+                psi_pos = 0.5 * np.dot(strain_pos, stress_pos)
+                
+                # IMPORTANT : Pour le champ de phase, on utilise SEULEMENT l'énergie positive
+                psi_gauss[gp_idx] = psi_pos
+                
+                # Alternative (plus rigoureuse mais peut être instable numériquement) :
+                # stress = D @ strain
+                # psi_pos = 0.5 * np.dot(strain, P_pos @ stress)
+                # psi_gauss[gp_idx] = max(0.0, psi_pos)  # Assurer positivité
+                
             else:
-                # Sans décomposition
+                # Sans décomposition - énergie totale
                 stress = D @ strain
-                psi_gauss[gp_idx] = 0.5 * np.dot(strain, stress)
+                psi_total = 0.5 * np.dot(strain, stress)
+                
+                # CORRECTION : Pour le champ de phase sans décomposition,
+                # on peut utiliser un critère simple (par exemple, seulement si en traction)
+                if self.mesh.material_id[elem_id] == 1:  # Glace seulement
+                    # Critère simple : énergie seulement si trace(strain) > 0 (dilatation)
+                    trace_strain = strain[0] + strain[1]  # εxx + εyy
+                    if trace_strain > 0:
+                        psi_gauss[gp_idx] = psi_total
+                    else:
+                        psi_gauss[gp_idx] = 0.0
+                else:
+                    # Substrat : pas d'endommagement
+                    psi_gauss[gp_idx] = 0.0
+    
+        # CORRECTION : S'assurer que les valeurs sont positives ou nulles
+        psi_gauss = np.maximum(psi_gauss, 0.0)
         
         return psi_gauss
     

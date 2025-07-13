@@ -9,8 +9,8 @@ from model import IceSubstratePhaseFieldFracture
 # ============================================================
 
 # --- Paramètres du maillage ---
-nx = 150                   # Nombre d'éléments en X
-ny_ice = 5                 # Nombre d'éléments dans la glace
+nx = 566                   # Nombre d'éléments en X
+ny_ice = 21                 # Nombre d'éléments dans la glace
 ny_substrate = 5            # Nombre d'éléments dans le substrat
 length = 170.0              # Longueur du domaine (mm)
 ice_height = 6.4            # Hauteur de la couche de glace (mm)
@@ -20,8 +20,8 @@ substrate_height = 6.4      # Hauteur du substrat (mm)
 # --- Paramètres de maillage progressif ---
 use_coarse_near_bc = True   # Activer le maillage grossier près de l'encastrement
 coarse_zone_length = 15.0   # Zone grossière de 0 à 25 mm
-coarsening_ratio = 5.0      # Éléments 4x plus gros à x=0
-coarse_zone_reduction = 0.5 # Utiliser seulement 40% des éléments dans cette zone
+coarsening_ratio = 100.0      # Éléments 4x plus gros à x=0
+coarse_zone_reduction = 0.7 # Utiliser seulement 70% des éléments dans cette zone
 
 # --- Propriétés des matériaux ---
 # Glace
@@ -38,16 +38,16 @@ Gc_sub = 1.0e+8             # Énergie de rupture (N/mm) - très élevée
 
 # --- Propriétés cohésives de l'interface ---
 czm_mesh = True             # True: utilise des éléments cohésifs, False: maillage classique
-coh_normal_stiffness = 1.0e+8      # Rigidité normale (MPa/mm)
-coh_shear_stiffness = 1.0e+8      # Rigidité en cisaillement (MPa/mm)
+coh_normal_stiffness = 1.0e+4      # Rigidité normale (MPa/mm)
+coh_shear_stiffness = 1.0e+4      # Rigidité en cisaillement (MPa/mm)
 
 # RÉSISTANCES
-coh_normal_strength = 0.4e+6          # Résistance normale (MPa)
-coh_shear_strength = 0.4e+6           # Résistance en cisaillement (MPa)
+coh_normal_strength = 0.3          # Résistance normale (MPa)
+coh_shear_strength = 0.3           # Résistance en cisaillement (MPa)
 
 # ÉNERGIES DE RUPTURE
-coh_normal_Gc = 0.001e+6              # Énergie de rupture normale (N/mm)
-coh_shear_Gc = 0.001e+6               # Énergie de rupture en cisaillement (N/mm)
+coh_normal_Gc = 0.00056              # Énergie de rupture normale (N/mm)
+coh_shear_Gc = 0.00056               # Énergie de rupture en cisaillement (N/mm)
 
 # AUTRES PARAMÈTRES COHÉSIFS
 coh_compression_factor = 50.0       # Facteur de pénalité en compression
@@ -66,14 +66,14 @@ ramp_time = 1.0             # Temps de montée en charge (s)
 # --- Paramètres temporels ---
 T = 1.0                     # Temps total de simulation (s)
 dt = 1.0e-2                 # Pas de temps initial
-dt_min = 1.0e-10            # Pas de temps minimal
+dt_min = 1.0e-12            # Pas de temps minimal
 dt_max = 1.0e-2             # Pas de temps maximal
 
 # --- Paramètres du solveur ---
-max_newton_iter = 30         # Itérations Newton max
-newton_tol = 1.0e-4         # Tolérance Newton
+max_newton_iter = 6         # Itérations Newton max
+newton_tol = 5.0e-5         # Tolérance Newton
 max_staggered_iter = 5     # Itérations décalées max
-staggered_tol = 1.0e-2      # Tolérance schéma décalé
+staggered_tol = 5.0e-3      # Tolérance schéma décalé
 alpha_HHT = 0.05           # Paramètre HHT-alpha --> alpha [0;1/3]
 
 # --- Paramètres d'adaptation du pas de temps ---
@@ -88,11 +88,11 @@ staggered_iter_fast = 1            # Convergence rapide si <= ce seuil
 staggered_iter_slow = 5            # Convergence lente si >= ce seuil
 
 # Seuils d'endommagement
-damage_threshold = 0.9             # Seuil d'évolution rapide (volume)
-interface_damage_threshold = 0.9   # Seuil d'évolution rapide (interface)
+damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
+interface_damage_threshold = 0.8   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
-use_stress_decomposition = True   # Décomposition spectrale
+use_decomposition = False   # Décomposition spectrale
 plane_strain = True              # Déformation plane (vs contrainte plane)
 save_plots = True                # Sauvegarder les graphiques
 display_plots = False            # Afficher les graphiques

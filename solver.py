@@ -82,7 +82,7 @@ class HHTAlphaSolver:
                        loading_params) -> Tuple[np.ndarray, np.ndarray, np.ndarray, ConvergenceInfo]:
         """
         Résout un pas de temps avec le schéma HHT-alpha
-        
+
         Returns:
             u: Déplacements au temps n+1
             v: Vitesses au temps n+1
@@ -92,54 +92,55 @@ class HHTAlphaSolver:
         # Prédicteurs (Newmark)
         u_pred = u_prev + dt * v_prev + 0.5 * dt**2 * ((1.0 - 2.0 * self.params.beta) * a_prev)
         v_pred = v_prev + dt * ((1.0 - self.params.gamma) * a_prev)
-        
+
         # Initialisation
         u = u_pred.copy()
         v = v_pred.copy()
         a = np.zeros_like(a_prev)
-        
+
         # Paramètres pour le calcul du résidu
         residual_params = {
             'alpha_HHT': self.params.alpha_HHT,
             'loading_params': loading_params,
-            'use_decomposition': self.assembler.materials.use_decomposition if hasattr(self.assembler.materials, 'use_decomposition') else False
+            'use_decomposition': self.assembler.materials.use_decomposition  # CORRECTION
         }
-        
+
         # Adapter la tolérance selon dt (pour petits pas de temps)
         adaptive_tol = self.params.newton_tol
         #if dt < 1e-4:
         #    adaptive_tol = min(1e-2, self.params.newton_tol * 100)
         #    print(f"    Tolérance adaptée: {adaptive_tol:.3e} (dt petit)")
-        
+
         # Itérations de Newton-Raphson
         for newton_iter in range(self.params.max_newton_iter):
             # Calculer l'accélération avec Newmark
             a = self._compute_acceleration(u, u_prev, v_prev, a_prev, dt)
-            
+
             # Assembler les matrices
             K_curr, M, f_ext_curr = self.assembler.assemble_system(
-                u, d, time, loading_params
+                u, d, time, loading_params, 
+                use_decomposition=self.assembler.materials.use_decomposition  # CORRECTION
             )
-            
+
             # Calculer le résidu
             residual = self._compute_residual(
                 u, v, a, u_prev, v_prev, a_prev, d, 
                 K_curr, M, f_ext_curr, time, dt, residual_params
             )
-            
+
             # Vérifier la convergence
             residual_norm = np.linalg.norm(residual)
             u_norm = np.linalg.norm(u) + 1e-10
             relative_residual = residual_norm / u_norm
-            
+
             print(f"    Newton iter {newton_iter+1}: "
                   f"résidu = {residual_norm:.6e}, "
                   f"résidu relatif = {relative_residual:.6e}")
-            
+
             if relative_residual < adaptive_tol:
                 # Mettre à jour la vitesse
                 v = v_prev + dt * ((1.0 - self.params.gamma) * a_prev + self.params.gamma * a)
-                
+
                 info = ConvergenceInfo(
                     converged=True,
                     iterations=newton_iter+1,
@@ -147,17 +148,17 @@ class HHTAlphaSolver:
                     relative_residual=relative_residual,
                     reason="Tolérance atteinte"
                 )
-                
+
                 self.total_newton_iterations += newton_iter + 1
                 return u, v, a, info
-            
+
             # Calculer la matrice effective
             K_eff = self._compute_effective_stiffness(K_curr, M, dt)
-            
+
             # Appliquer les conditions aux limites
             bc_dict = self.assembler.mesh.get_boundary_conditions()
             self._apply_bc_to_system(K_eff, residual, bc_dict)
-            
+
             # Résoudre le système linéaire
             try:
                 du = spsolve(K_eff, -residual)
@@ -169,7 +170,7 @@ class HHTAlphaSolver:
             # Recherche linéaire pour stabiliser
             alpha = 1.0
             u_trial = u + alpha * du
-            
+
             # Si le résidu augmente trop, réduire alpha
             for _ in range(5):
                 a_trial = self._compute_acceleration(u_trial, u_prev, v_prev, a_prev, dt)
@@ -177,19 +178,19 @@ class HHTAlphaSolver:
                     u_trial, v, a_trial, u_prev, v_prev, a_prev, d,
                     K_curr, M, f_ext_curr, time, dt, residual_params
                 )
-                
+
                 if np.linalg.norm(residual_trial) < residual_norm * 1.1:
                     break
                 
                 alpha *= 0.5
                 u_trial = u + alpha * du
-                
+
                 if alpha < 0.1:
                     break
-            
+                
             # Mettre à jour le déplacement
             u = u_trial
-        
+
         # Non convergé
         info = ConvergenceInfo(
             converged=False,
@@ -198,7 +199,7 @@ class HHTAlphaSolver:
             relative_residual=relative_residual,
             reason="Nombre maximal d'itérations atteint"
         )
-        
+
         return u, v, a, info
     
     def _compute_acceleration(self, u: np.ndarray, u_prev: np.ndarray,
@@ -231,9 +232,11 @@ class HHTAlphaSolver:
             f_ext_prev = np.zeros_like(f_ext_curr)
         
         # Résidu HHT-alpha
-        #residual = (M @ a + (1.0 + alpha) * f_int_curr - alpha * f_int_prev - (1.0 + alpha) * f_ext_curr + alpha * f_ext_prev)
-        #residual = (M @ a + (1.0 - alpha) * f_int_curr + alpha * f_int_prev - (1.0 - alpha) * f_ext_curr - alpha * f_ext_prev)
-        residual = (M @ a + (1.0 + alpha) * f_int_curr - alpha * f_int_prev - (1.0 + alpha) * f_ext_curr + alpha * f_ext_prev)
+        residual = (M @ a + 
+                   (1.0 + alpha) * f_int_curr - 
+                   alpha * f_int_prev - 
+                   (1.0 + alpha) * f_ext_curr + 
+                   alpha * f_ext_prev)
         
         return residual
     

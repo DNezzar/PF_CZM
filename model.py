@@ -76,7 +76,7 @@ class IceSubstratePhaseFieldFracture:
             coarsening_ratio=kwargs.get('coarsening_ratio', 3.0),
             coarse_zone_reduction=kwargs.get('coarse_zone_reduction', 0.5)
         )
-        
+
         # Propriétés des matériaux
         self.ice_props = MaterialProperties(
             E=kwargs.get('E_ice', 1500.0),
@@ -85,7 +85,7 @@ class IceSubstratePhaseFieldFracture:
             Gc=kwargs.get('Gc_ice', 0.001),
             name="Ice"
         )
-        
+
         self.substrate_props = MaterialProperties(
             E=kwargs.get('E_sub', 69000.0),
             nu=kwargs.get('nu_sub', 0.325),
@@ -93,7 +93,7 @@ class IceSubstratePhaseFieldFracture:
             Gc=kwargs.get('Gc_sub', 1.0e+8),
             name="Substrate"
         )
-        
+
         # Propriétés cohésives
         self.cohesive_props = CohesiveProperties(
             normal_stiffness=kwargs.get('coh_normal_stiffness', 1.0e+5),
@@ -105,7 +105,7 @@ class IceSubstratePhaseFieldFracture:
             shear_Gc=kwargs.get('coh_shear_Gc', 0.00056),
             fixed_mixity=kwargs.get('fixed_mixity', 0.5)
         )
-        
+
         # Paramètres du champ de phase
         self.phase_field_params = PhaseFieldParameters(
             l0=kwargs.get('l0', 1.0),
@@ -113,14 +113,14 @@ class IceSubstratePhaseFieldFracture:
             irreversibility=kwargs.get('irreversibility', True),
             threshold=kwargs.get('damage_threshold_min', 1e-6)
         )
-        
+
         # Paramètres de chargement
         self.loading_params = LoadingParameters(
             omega=kwargs.get('omega', 830.1135),
             ramp_time=kwargs.get('ramp_time', 1.0),
             load_type=kwargs.get('load_type', 'centrifugal')
         )
-        
+
         # Paramètres du solveur
         self.solver_params = SolverParameters(
             alpha_HHT=kwargs.get('alpha_HHT', 0.05),
@@ -141,23 +141,23 @@ class IceSubstratePhaseFieldFracture:
             damage_threshold=kwargs.get('damage_threshold', 0.90),
             interface_damage_threshold=kwargs.get('interface_damage_threshold', 0.90)
         )
-        
+
         # Paramètres de visualisation
         self.plot_settings = PlotSettings(
             save_plots=kwargs.get('save_plots', True),
             display_plots=kwargs.get('display_plots', True),
             output_dir=os.path.join(self.results_dir, 'plots')
         )
-        
-        # Options du modèle
+
+        # Options du modèle - CORRECTION : utiliser use_decomposition partout
         self.plane_strain = kwargs.get('plane_strain', True)
-        self.use_stress_decomposition = kwargs.get('use_stress_decomposition', False)
-        self.total_time = kwargs.get('T', 1.0)
+        self.use_decomposition = kwargs.get('use_decomposition', kwargs.get('use_stress_decomposition', False))
+        self.total_time = kwargs.get('T', 1.0)    
     
     def _initialize_modules(self):
         """Initialise tous les modules dans l'ordre approprié"""
         print("\nInitialisation des modules...")
-        
+
         # 1. Maillage
         print("  - Génération du maillage...")
         self.mesh = MeshManager(self.mesh_params)
@@ -168,13 +168,13 @@ class IceSubstratePhaseFieldFracture:
         print(f"  - len(cohesive_elements) = {len(self.mesh.cohesive_elements)}")
         if len(self.mesh.cohesive_elements) > 0:
             print(f"  - Premier élément cohésif: {self.mesh.cohesive_elements[0].nodes}")
-        
+
         # Récupérer les dimensions
         self.num_nodes = self.mesh.num_nodes
         self.num_elements = self.mesh.num_elements
         self.num_dofs_u = self.mesh.num_dofs_u
         self.num_dofs_d = self.mesh.num_dofs_d
-        
+
         # 2. Matériaux
         print("  - Configuration des matériaux...")
         self.material_manager = MaterialManager(
@@ -184,30 +184,31 @@ class IceSubstratePhaseFieldFracture:
             plane_strain=self.plane_strain,
             k_res=self.phase_field_params.k_res
         )
-        
+
         # Ajouter l0 au gestionnaire de matériaux
         self.material_manager.l0 = self.phase_field_params.l0
-        self.material_manager.use_decomposition = self.use_stress_decomposition
-        
+        # CORRECTION : propager use_decomposition au material_manager
+        self.material_manager.use_decomposition = self.use_decomposition
+
         # 3. Décomposition spectrale
-        if self.use_stress_decomposition:
+        if self.use_decomposition:
             print("  - Initialisation de la décomposition spectrale...")
             self.material_manager.spectral_decomp = SpectralDecomposition(self.material_manager)
-        
+
         # 4. Zone cohésive
         print("  - Configuration de la zone cohésive...")
         self.cohesive_manager = CohesiveZoneManager(
             material_manager=self.material_manager,
             mesh_manager=self.mesh
         )
-        
+
         # 5. Matrices élémentaires
         print("  - Préparation des matrices élémentaires...")
         self.element_matrices = ElementMatrices(
             mesh_manager=self.mesh,
             material_manager=self.material_manager
         )
-        
+
         # 6. Assembleur système
         print("  - Configuration de l'assembleur...")
         self.system_assembler = SystemAssembler(
@@ -216,7 +217,7 @@ class IceSubstratePhaseFieldFracture:
             cohesive_manager=self.cohesive_manager,
             element_matrices=self.element_matrices
         )
-        
+
         # 7. Calculateur d'énergie
         print("  - Initialisation du calculateur d'énergie...")
         self.energy_calculator = EnergyCalculator(
@@ -224,7 +225,7 @@ class IceSubstratePhaseFieldFracture:
             material_manager=self.material_manager,
             cohesive_manager=self.cohesive_manager
         )
-        
+
         # 8. Solveur du champ de phase
         print("  - Configuration du solveur de champ de phase...")
         self.phase_field_solver = PhaseFieldSolver(
@@ -233,22 +234,22 @@ class IceSubstratePhaseFieldFracture:
             energy_calculator=self.energy_calculator,
             params=self.phase_field_params
         )
-        
+
         # 9. Utilitaires
         print("  - Initialisation des utilitaires...")
         self.damage_checker = DamageChecker(
             damage_threshold=self.solver_params.damage_threshold,
             interface_damage_threshold=self.solver_params.interface_damage_threshold
         )
-        
+
         self.data_logger = DataLogger(
             output_dir=os.path.join(self.results_dir, 'data')
         )
-        
+
         self.progress_tracker = ProgressTracker(
             total_time=self.total_time
         )
-        
+
         # 10. Visualisation
         print("  - Configuration de la visualisation...")
         self.plot_manager = PlotManager(
@@ -256,17 +257,73 @@ class IceSubstratePhaseFieldFracture:
             material_manager=self.material_manager,
             settings=self.plot_settings
         )
-        
+
         self.stress_calculator = StressFieldCalculator(
             mesh_manager=self.mesh,
             material_manager=self.material_manager,
             cohesive_manager=self.cohesive_manager
         )
-        
+
         # 11. Moniteur d'énergie
         self.energy_monitor = EnergyMonitor()
-        
+
         print("  Tous les modules initialisés avec succès!")
+
+
+    def _print_configuration_summary(self):
+        """Affiche un résumé de la configuration"""
+        print("\n" + "="*60)
+        print("RÉSUMÉ DE LA CONFIGURATION")
+        print("="*60)
+
+        print(f"\nMaillage:")
+        print(f"  - Dimensions: {self.mesh_params.length} × {self.mesh_params.total_height} mm")
+        print(f"  - Éléments: {self.num_elements} ({self.mesh_params.nx} × {self.mesh_params.ny})")
+        print(f"  - Nœuds: {self.num_nodes}")
+        print(f"  - Éléments cohésifs: {len(self.mesh.cohesive_elements)}")
+        print(f"  - Intégration cohésive: {self.mesh_params.cohesive_integration} "
+              f"({self.mesh_params.cohesive_integration_points} points)")
+
+        if self.mesh_params.use_coarse_near_bc:
+            print(f"  - Maillage progressif activé:")
+            print(f"    • Zone grossière: 0 à {self.mesh_params.coarse_zone_length} mm")
+            print(f"    • Ratio de taille: {self.mesh_params.coarsening_ratio}")
+
+        print(f"\nMatériaux:")
+        print(f"  Glace:")
+        print(f"    - E = {self.ice_props.E} MPa, ν = {self.ice_props.nu}")
+        print(f"    - Gc = {self.ice_props.Gc} N/mm")
+        print(f"  Substrat:")
+        print(f"    - E = {self.substrate_props.E} MPa, ν = {self.substrate_props.nu}")
+        print(f"    - Gc = {self.substrate_props.Gc} N/mm")
+
+        print(f"\nInterface cohésive:")
+        print(f"  Mode I: σc = {self.cohesive_props.normal_strength} MPa, "
+              f"Gc = {self.cohesive_props.normal_Gc} N/mm")
+        print(f"  Mode II: τc = {self.cohesive_props.shear_strength} MPa, "
+              f"Gc = {self.cohesive_props.shear_Gc} N/mm")
+        print(f"  Mixité fixe: {self.cohesive_props.fixed_mixity}")
+
+        print(f"\nChargement:")
+        print(f"  - Type: {self.loading_params.load_type}")
+        print(f"  - Vitesse angulaire: {self.loading_params.omega} rad/s")
+        print(f"  - Temps de rampe: {self.loading_params.ramp_time} s")
+
+        print(f"\nSolveur:")
+        print(f"  - Option keep_previous_staggered: {self.solver_params.keep_previous_staggered}")
+        print(f"  - Facteurs d'adaptation dt:")
+        print(f"    • Augmentation: {self.solver_params.dt_increase_factor} (normal), "
+              f"{self.solver_params.dt_increase_fast} (rapide)")
+        print(f"    • Réduction: {self.solver_params.dt_decrease_factor} (normal), "
+              f"{self.solver_params.dt_decrease_slow} (lente)")
+
+        print(f"\nOptions:")
+        print(f"  - {'Déformation plane' if self.plane_strain else 'Contrainte plane'}")
+        print(f"  - Décomposition spectrale: {'Activée' if self.use_decomposition else 'Désactivée'}")
+        print(f"  - Longueur caractéristique l0: {self.phase_field_params.l0} mm")
+
+        print(f"\nRépertoire de sortie: {self.results_dir}")
+        print("="*60)
     
     def _initialize_solution_fields(self):
         """Initialise tous les champs de solution"""
@@ -295,60 +352,6 @@ class IceSubstratePhaseFieldFracture:
         
         print("  Champs de solution initialisés")
     
-    def _print_configuration_summary(self):
-        """Affiche un résumé de la configuration"""
-        print("\n" + "="*60)
-        print("RÉSUMÉ DE LA CONFIGURATION")
-        print("="*60)
-        
-        print(f"\nMaillage:")
-        print(f"  - Dimensions: {self.mesh_params.length} × {self.mesh_params.total_height} mm")
-        print(f"  - Éléments: {self.num_elements} ({self.mesh_params.nx} × {self.mesh_params.ny})")
-        print(f"  - Nœuds: {self.num_nodes}")
-        print(f"  - Éléments cohésifs: {len(self.mesh.cohesive_elements)}")
-        print(f"  - Intégration cohésive: {self.mesh_params.cohesive_integration} "
-              f"({self.mesh_params.cohesive_integration_points} points)")
-        
-        if self.mesh_params.use_coarse_near_bc:
-            print(f"  - Maillage progressif activé:")
-            print(f"    • Zone grossière: 0 à {self.mesh_params.coarse_zone_length} mm")
-            print(f"    • Ratio de taille: {self.mesh_params.coarsening_ratio}")
-        
-        print(f"\nMatériaux:")
-        print(f"  Glace:")
-        print(f"    - E = {self.ice_props.E} MPa, ν = {self.ice_props.nu}")
-        print(f"    - Gc = {self.ice_props.Gc} N/mm")
-        print(f"  Substrat:")
-        print(f"    - E = {self.substrate_props.E} MPa, ν = {self.substrate_props.nu}")
-        print(f"    - Gc = {self.substrate_props.Gc} N/mm")
-        
-        print(f"\nInterface cohésive:")
-        print(f"  Mode I: σc = {self.cohesive_props.normal_strength} MPa, "
-              f"Gc = {self.cohesive_props.normal_Gc} N/mm")
-        print(f"  Mode II: τc = {self.cohesive_props.shear_strength} MPa, "
-              f"Gc = {self.cohesive_props.shear_Gc} N/mm")
-        print(f"  Mixité fixe: {self.cohesive_props.fixed_mixity}")
-        
-        print(f"\nChargement:")
-        print(f"  - Type: {self.loading_params.load_type}")
-        print(f"  - Vitesse angulaire: {self.loading_params.omega} rad/s")
-        print(f"  - Temps de rampe: {self.loading_params.ramp_time} s")
-        
-        print(f"\nSolveur:")
-        print(f"  - Option keep_previous_staggered: {self.solver_params.keep_previous_staggered}")
-        print(f"  - Facteurs d'adaptation dt:")
-        print(f"    • Augmentation: {self.solver_params.dt_increase_factor} (normal), "
-              f"{self.solver_params.dt_increase_fast} (rapide)")
-        print(f"    • Réduction: {self.solver_params.dt_decrease_factor} (normal), "
-              f"{self.solver_params.dt_decrease_slow} (lente)")
-        
-        print(f"\nOptions:")
-        print(f"  - {'Déformation plane' if self.plane_strain else 'Contrainte plane'}")
-        print(f"  - Décomposition spectrale: {'Activée' if self.use_stress_decomposition else 'Désactivée'}")
-        print(f"  - Longueur caractéristique l0: {self.phase_field_params.l0} mm")
-        
-        print(f"\nRépertoire de sortie: {self.results_dir}")
-        print("="*60)
     
     def _create_energy_components(self, energy_dict: Dict) -> EnergyComponents:
         """Crée un objet EnergyComponents à partir d'un dictionnaire, en filtrant les champs"""
@@ -374,7 +377,7 @@ class IceSubstratePhaseFieldFracture:
             'solver': vars(self.solver_params),
             'options': {
                 'plane_strain': self.plane_strain,
-                'use_stress_decomposition': self.use_stress_decomposition,
+                'use_decomposition': self.use_decomposition,  # CORRECTION
                 'total_time': self.total_time
             }
         }

@@ -71,6 +71,9 @@ class MaterialManager:
         self.plane_strain = plane_strain
         self.k_res = k_res  # Rigidité résiduelle
         
+        # Paramètre de décomposition spectrale
+        self.use_decomposition = False  # Sera défini par le modèle
+        
         # Cache pour les matrices constitutives
         self._constitutive_cache: Dict[MaterialType, np.ndarray] = {}
         self._sqrt_cache: Dict[Tuple[float, float], Tuple[np.ndarray, np.ndarray]] = {}
@@ -239,8 +242,10 @@ class SpectralDecomposition:
             if debug:
                 print("Déformation très petite détectée, retour de décomposition nulle")
             zero_strain = np.zeros_like(strain_vector)
-            identity = np.eye(3, dtype=np.float64)
-            return zero_strain, zero_strain, identity, identity
+            # CORRECTION : Pour petites déformations, P_pos et P_neg doivent sommer à l'identité
+            P_pos = 0.5 * np.eye(3, dtype=np.float64)
+            P_neg = 0.5 * np.eye(3, dtype=np.float64)
+            return zero_strain, zero_strain, P_pos, P_neg
 
         try:
             # Obtenir les matrices racines carrées
@@ -248,8 +253,9 @@ class SpectralDecomposition:
         except Exception as e:
             print(f"Erreur dans get_stiffness_sqrt_matrices: {e}")
             half_strain = strain_vector * 0.5
-            identity = np.eye(3, dtype=np.float64)
-            return half_strain, half_strain, identity, identity
+            P_pos = 0.5 * np.eye(3, dtype=np.float64)
+            P_neg = 0.5 * np.eye(3, dtype=np.float64)
+            return half_strain, half_strain, P_pos, P_neg
 
         # Transformer la déformation: ε̃ = C^(1/2) : ε
         strain_tilde = C_sqrt @ strain_vector
@@ -280,6 +286,18 @@ class SpectralDecomposition:
             E_tilde_1, E_tilde_2, epsilon_tilde_1, epsilon_tilde_2, 
             C_sqrt, C_inv_sqrt
         )
+
+        # CORRECTION : Normaliser pour assurer que P_pos + P_neg = I
+        # Cette étape est importante pour la stabilité numérique
+        P_sum = P_pos + P_neg
+        identity_error = np.linalg.norm(P_sum - np.eye(3))
+        if identity_error > 1e-10:
+            if debug:
+                print(f"Attention: P_pos + P_neg dévie de l'identité de {identity_error:.3e}")
+            # Corriger en normalisant
+            correction = 0.5 * (np.eye(3) - P_sum)
+            P_pos += correction
+            P_neg += correction
 
         # Vérification si demandée
         if verif or debug:
