@@ -221,13 +221,7 @@ class SpectralDecomposition:
                   verif: bool = False, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Décomposition spectrale orthogonale de la déformation (SD3)
-        Basée sur He and Shao (2019) - implémentée dans Nguyen et al. (2020)
-
-        Returns:
-            strain_pos: Partie positive de la déformation
-            strain_neg: Partie négative de la déformation
-            P_pos: Tenseur de projection positif
-            P_neg: Tenseur de projection négatif
+        Selon He and Shao (2019) - implémentée dans Nguyen et al. (2020)
         """
         # Validation des entrées
         if np.any(np.isnan(strain_vector)) or np.any(np.isinf(strain_vector)):
@@ -235,18 +229,17 @@ class SpectralDecomposition:
             zero_strain = np.zeros_like(strain_vector)
             identity = np.eye(3, dtype=np.float64)
             return zero_strain, zero_strain, identity, identity
-
+    
         # Vérifier les petites déformations
         strain_norm = np.linalg.norm(strain_vector)
         if strain_norm < self.ZERO_TOL:
             if debug:
                 print("Déformation très petite détectée, retour de décomposition nulle")
             zero_strain = np.zeros_like(strain_vector)
-            # CORRECTION : Pour petites déformations, P_pos et P_neg doivent sommer à l'identité
             P_pos = 0.5 * np.eye(3, dtype=np.float64)
             P_neg = 0.5 * np.eye(3, dtype=np.float64)
             return zero_strain, zero_strain, P_pos, P_neg
-
+    
         try:
             # Obtenir les matrices racines carrées
             C_sqrt, C_inv_sqrt = self.material_manager.get_stiffness_sqrt_matrices(E, nu)
@@ -256,55 +249,43 @@ class SpectralDecomposition:
             P_pos = 0.5 * np.eye(3, dtype=np.float64)
             P_neg = 0.5 * np.eye(3, dtype=np.float64)
             return half_strain, half_strain, P_pos, P_neg
-
+    
         # Transformer la déformation: ε̃ = C^(1/2) : ε
         strain_tilde = C_sqrt @ strain_vector
-
+    
         if debug:
             print(f"Déformation originale: {strain_vector}")
             print(f"Déformation transformée: {strain_tilde}")
-
+    
         # Calcul des valeurs propres et décomposition spectrale de ε̃
         epsilon_tilde_1, epsilon_tilde_2, E_tilde_1, E_tilde_2 = self._compute_eigenvalues_2D(strain_tilde)
-
-        # Appliquer les crochets de Macaulay
+    
+        # Appliquer les crochets de Macaulay (selon l'article, équation 10)
         eps1_tilde_pos = max(0.0, epsilon_tilde_1)
         eps1_tilde_neg = min(0.0, epsilon_tilde_1)
         eps2_tilde_pos = max(0.0, epsilon_tilde_2)
         eps2_tilde_neg = min(0.0, epsilon_tilde_2)
-
+    
         # Reconstruire les parties positive et négative dans l'espace transformé
         strain_tilde_pos = eps1_tilde_pos * E_tilde_1 + eps2_tilde_pos * E_tilde_2
         strain_tilde_neg = eps1_tilde_neg * E_tilde_1 + eps2_tilde_neg * E_tilde_2
-
+    
         # Retourner à l'espace original: ε± = C^(-1/2) : ε̃±
         strain_pos = C_inv_sqrt @ strain_tilde_pos
         strain_neg = C_inv_sqrt @ strain_tilde_neg
-
+    
         # Calculer les tenseurs de projection
         P_pos, P_neg = self._compute_projection_tensors_SD3(
             E_tilde_1, E_tilde_2, epsilon_tilde_1, epsilon_tilde_2, 
             C_sqrt, C_inv_sqrt
         )
-
-        # CORRECTION : Normaliser pour assurer que P_pos + P_neg = I
-        # Cette étape est importante pour la stabilité numérique
-        P_sum = P_pos + P_neg
-        identity_error = np.linalg.norm(P_sum - np.eye(3))
-        if identity_error > 1e-10:
-            if debug:
-                print(f"Attention: P_pos + P_neg dévie de l'identité de {identity_error:.3e}")
-            # Corriger en normalisant
-            correction = 0.5 * (np.eye(3) - P_sum)
-            P_pos += correction
-            P_neg += correction
-
+    
         # Vérification si demandée
         if verif or debug:
             self._verify_decomposition(strain_vector, strain_pos, strain_neg, 
                                      P_pos, P_neg, E, nu, debug)
-
-        return strain_pos, strain_neg, P_pos, P_neg    
+    
+        return strain_pos, strain_neg, P_pos, P_neg  
     
     def _compute_eigenvalues_2D(self, strain_tilde: np.ndarray) -> Tuple[float, float, np.ndarray, np.ndarray]:
         """

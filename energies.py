@@ -280,44 +280,49 @@ class EnergyCalculator:
             strain = B @ u_elem
             
             if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
-                # Décomposition spectrale
+                # Décomposition spectrale SD3 selon l'article
                 strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
                     strain, mat_props.E, mat_props.nu
                 )
                 
-                # CORRECTION : Calculer correctement l'énergie positive
-                # Méthode 1 : Utiliser directement la déformation positive
+                # Énergie positive : ψ⁺ = ½ ε⁺:C:ε⁺
                 stress_pos = D @ strain_pos
-                psi_pos = 0.5 * np.dot(strain_pos, stress_pos)
+                psi_plus = 0.5 * np.dot(strain_pos, stress_pos)
                 
-                # IMPORTANT : Pour le champ de phase, on utilise SEULEMENT l'énergie positive
-                psi_gauss[gp_idx] = psi_pos
-                
-                # Alternative (plus rigoureuse mais peut être instable numériquement) :
-                # stress = D @ strain
-                # psi_pos = 0.5 * np.dot(strain, P_pos @ stress)
-                # psi_gauss[gp_idx] = max(0.0, psi_pos)  # Assurer positivité
+                psi_gauss[gp_idx] = psi_plus
                 
             else:
-                # Sans décomposition - énergie totale
-                stress = D @ strain
-                psi_total = 0.5 * np.dot(strain, stress)
+                # Sans SD3 : décomposition spectrale simple de la déformation
+                # pour obtenir la partie positive
                 
-                # CORRECTION : Pour le champ de phase sans décomposition,
-                # on peut utiliser un critère simple (par exemple, seulement si en traction)
-                if self.mesh.material_id[elem_id] == 1:  # Glace seulement
-                    # Critère simple : énergie seulement si trace(strain) > 0 (dilatation)
-                    trace_strain = strain[0] + strain[1]  # εxx + εyy
-                    if trace_strain > 0:
-                        psi_gauss[gp_idx] = psi_total
-                    else:
-                        psi_gauss[gp_idx] = 0.0
+                # Convertir le vecteur de déformation en tenseur 2x2
+                eps_tensor = np.array([[strain[0], 0.5*strain[2]], 
+                                       [0.5*strain[2], strain[1]]])
+                
+                # Valeurs propres et vecteurs propres du tenseur de déformation
+                eigenvalues, eigenvectors = np.linalg.eigh(eps_tensor)
+                
+                # Partie positive des valeurs propres (Macaulay brackets)
+                eigenvalues_pos = np.maximum(eigenvalues, 0.0)
+                
+                # Reconstruire le tenseur de déformation positive
+                eps_pos_tensor = eigenvectors @ np.diag(eigenvalues_pos) @ eigenvectors.T
+                
+                # Convertir en vecteur de Voigt
+                strain_pos = np.array([eps_pos_tensor[0,0], 
+                                       eps_pos_tensor[1,1], 
+                                       2.0*eps_pos_tensor[0,1]])
+                
+                # Calculer l'énergie positive : ψ⁺ = ½ ε⁺:C:ε⁺
+                stress_pos = D @ strain_pos
+                psi_plus = 0.5 * np.dot(strain_pos, stress_pos)
+                
+                # Appliquer seulement à la glace
+                if self.mesh.material_id[elem_id] == 1:  # Glace
+                    psi_gauss[gp_idx] = psi_plus
                 else:
                     # Substrat : pas d'endommagement
                     psi_gauss[gp_idx] = 0.0
-    
-        # CORRECTION : S'assurer que les valeurs sont positives ou nulles
-        psi_gauss = np.maximum(psi_gauss, 0.0)
         
         return psi_gauss
     
