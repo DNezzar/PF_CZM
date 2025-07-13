@@ -207,7 +207,7 @@ class PhaseFieldSolver:
     def _update_history_field(self, u: np.ndarray):
         """Met à jour le champ d'histoire basé sur l'énergie de déformation"""
         # CORRECTION : Utiliser le paramètre use_decomposition du modèle
-        use_decomposition = self.materials.use_decomposition if hasattr(self.materials, 'use_decomposition') else False
+        use_decomposition = self.materials.use_decomposition
         
         for e in range(self.mesh.num_elements):
             # Calculer les densités d'énergie aux points de Gauss

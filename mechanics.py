@@ -82,12 +82,12 @@ class ElementMatrices:
 
             if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
                 # Utiliser les déplacements du PAS PRÉCÉDENT pour les projecteurs
-                u_elem_prev = self._extract_element_displacements(element_nodes, u_prev)
-                strain_prev = B @ u_elem_prev
+                u_elem_current = self._extract_element_displacements(element_nodes, u)
+                strain_current = B @ u_elem_current
 
                 # Calculer les projecteurs avec la déformation PRÉCÉDENTE
-                strain_pos_prev, strain_neg_prev, P_pos, P_neg = self.materials.spectral_decomp.decompose(
-                    strain_prev, mat_props.E, mat_props.nu
+                strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
+                    strain_current, mat_props.E, mat_props.nu
                 )
 
                 # ÉQUATION (26) : C_{n+1}(d) = g(d) P^+(ε_n) : C : P^+(ε_n) + P^-(ε_n) : C : P^-(ε_n)

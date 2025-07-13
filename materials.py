@@ -215,7 +215,7 @@ class SpectralDecomposition:
     
     def __init__(self, material_manager: MaterialManager):
         self.material_manager = material_manager
-        self.ZERO_TOL = 1e-16
+        self.ZERO_TOL = 1e-12
     
     def decompose(self, strain_vector: np.ndarray, E: float, nu: float, 
                   verif: bool = False, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -223,6 +223,13 @@ class SpectralDecomposition:
         Décomposition spectrale orthogonale de la déformation (SD3)
         Selon He and Shao (2019) - implémentée dans Nguyen et al. (2020)
         """
+        
+        # Debug
+        if debug:
+            print(f"\nSD3 Decomposition:")
+            print(f"  Input strain: {strain_vector}")
+            print(f"  Strain norm: {np.linalg.norm(strain_vector)}")
+        
         # Validation des entrées
         if np.any(np.isnan(strain_vector)) or np.any(np.isinf(strain_vector)):
             print(f"Attention: Vecteur de déformation invalide détecté: {strain_vector}")
