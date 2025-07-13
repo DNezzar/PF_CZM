@@ -178,7 +178,7 @@ model = IceSubstratePhaseFieldFracture(
     interface_damage_threshold=interface_damage_threshold,
     
     # Options
-    use_stress_decomposition=use_stress_decomposition,
+    use_decomposition=use_decomposition,
     plane_strain=plane_strain,
     save_plots=save_plots,
     display_plots=display_plots,
