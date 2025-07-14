@@ -209,14 +209,26 @@ class PhaseFieldSolver:
         # CORRECTION : Utiliser le paramètre use_decomposition du modèle
         use_decomposition = self.materials.use_decomposition
         
+        # Vérifier si les déplacements sont très petits (cas initial)
+        u_norm = np.linalg.norm(u)
+        if u_norm < 1e-12:
+            # Pas de mise à jour de l'histoire si les déplacements sont négligeables
+            # Cela évite les problèmes numériques au premier pas
+            return
+        
         for e in range(self.mesh.num_elements):
-            # Calculer les densités d'énergie aux points de Gauss
-            psi_plus_gauss = self.energy_calc.calculate_strain_energy_density_at_gauss_points(
-                e, u, use_decomposition=use_decomposition  # CORRIGÉ: utilise le paramètre du modèle
-            )
-            
-            # Mettre à jour l'histoire pour CET élément spécifique
-            self.history.update_element(e, psi_plus_gauss)
+            # Ne mettre à jour l'histoire que pour la glace
+            if self.mesh.material_id[e] == 1:  # Glace
+                # Calculer les densités d'énergie aux points de Gauss
+                psi_plus_gauss = self.energy_calc.calculate_strain_energy_density_at_gauss_points(
+                    e, u, use_decomposition=use_decomposition
+                )
+                
+                # Mettre à jour l'histoire pour CET élément spécifique
+                # Éviter les valeurs négatives dues aux erreurs numériques
+                psi_plus_gauss = np.maximum(psi_plus_gauss, 0.0)
+                self.history.update_element(e, psi_plus_gauss)
+            # else: Substrat - pas de mise à jour de l'histoire
     
     def _apply_constraints(self, d: np.ndarray, d_prev: np.ndarray) -> np.ndarray:
         """Applique les contraintes sur l'endommagement"""

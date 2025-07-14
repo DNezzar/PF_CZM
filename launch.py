@@ -9,8 +9,8 @@ from model import IceSubstratePhaseFieldFracture
 # ============================================================
 
 # --- Paramètres du maillage ---
-nx = 566                   # Nombre d'éléments en X
-ny_ice = 21                 # Nombre d'éléments dans la glace
+nx = 150                   # Nombre d'éléments en X
+ny_ice = 5                 # Nombre d'éléments dans la glace
 ny_substrate = 5            # Nombre d'éléments dans le substrat
 length = 170.0              # Longueur du domaine (mm)
 ice_height = 6.4            # Hauteur de la couche de glace (mm)
@@ -28,13 +28,16 @@ coarse_zone_reduction = 0.5 # Utiliser seulement 70% des éléments dans cette z
 E_ice = 1500.0              # Module de Young (MPa)
 nu_ice = 0.31               # Coefficient de Poisson
 rho_ice = 0.917e-9          # Densité (ton/mm³)
-Gc_ice = 0.001             # Énergie de rupture (N/mm)
+Gc_ice = 0.001              # Énergie de rupture (N/mm)
 
 # Substrat (aluminium)
 E_sub = 69000.0             # Module de Young (MPa)
 nu_sub = 0.325              # Coefficient de Poisson
 rho_sub = 2.7e-9            # Densité (ton/mm³)
 Gc_sub = 1.0e+8             # Énergie de rupture (N/mm) - très élevée
+
+use_decomposition = False    # Décomposition spectrale
+plane_strain = True         # Déformation plane (vs contrainte plane)
 
 # --- Propriétés cohésives de l'interface ---
 czm_mesh = True             # True: utilise des éléments cohésifs, False: maillage classique
@@ -70,7 +73,7 @@ dt_min = 1.0e-12            # Pas de temps minimal
 dt_max = 1.0e-2             # Pas de temps maximal
 
 # --- Paramètres du solveur ---
-max_newton_iter = 6         # Itérations Newton max
+max_newton_iter = 10         # Itérations Newton max
 newton_tol = 5.0e-5         # Tolérance Newton
 max_staggered_iter = 5     # Itérations décalées max
 staggered_tol = 5.0e-3      # Tolérance schéma décalé
@@ -92,8 +95,6 @@ damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
 interface_damage_threshold = 0.8   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
-use_decomposition = False   # Décomposition spectrale
-plane_strain = True              # Déformation plane (vs contrainte plane)
 save_plots = True                # Sauvegarder les graphiques
 display_plots = False            # Afficher les graphiques
 output_dir = 'results'           # Répertoire de sortie

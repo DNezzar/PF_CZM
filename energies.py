@@ -278,18 +278,34 @@ class EnergyCalculator:
 
             # Déformation
             strain = B @ u_elem
+            
+            # Vérifier si la déformation est très petite
+            strain_norm = np.linalg.norm(strain)
+            
+            if strain_norm < 1e-12:
+                # Déformation négligeable : énergie nulle
+                psi_gauss[gp_idx] = 0.0
+                continue
 
             if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
                 # Décomposition spectrale SD3 selon l'article
-                strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
-                    strain, mat_props.E, mat_props.nu
-                )
+                try:
+                    strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
+                        strain, mat_props.E, mat_props.nu
+                    )
 
-                # Énergie positive : ψ⁺ = ½ ε⁺:C:ε⁺
-                stress_pos = D @ strain_pos
-                psi_plus = 0.5 * np.dot(strain_pos, stress_pos)
+                    # Énergie positive : ψ⁺ = ½ ε⁺:C:ε⁺
+                    stress_pos = D @ strain_pos
+                    psi_plus = 0.5 * np.dot(strain_pos, stress_pos)
 
-                psi_gauss[gp_idx] = psi_plus
+                    # S'assurer que l'énergie est positive
+                    psi_gauss[gp_idx] = max(0.0, psi_plus)
+                    
+                except Exception as e:
+                    print(f"Erreur dans la décomposition spectrale au point de Gauss {gp_idx}: {e}")
+                    # Fallback : énergie totale sans décomposition
+                    stress = D @ strain
+                    psi_gauss[gp_idx] = 0.5 * np.dot(strain, stress)
 
             else:
                 # Sans SD3 : décomposition spectrale simple de la déformation
@@ -319,16 +335,28 @@ class EnergyCalculator:
 
                 # Appliquer seulement à la glace
                 if self.mesh.material_id[elem_id] == 1:  # Glace
-                    psi_gauss[gp_idx] = psi_plus
+                    psi_gauss[gp_idx] = max(0.0, psi_plus)
                 else:
-                    # Substrat : pas d'endommagement
-                    psi_gauss[gp_idx] = 0.0
+                    # Substrat : pas d'endommagement, énergie totale
+                    stress = D @ strain
+                    psi_gauss[gp_idx] = max(0.0, 0.5 * np.dot(strain, stress))
 
         return psi_gauss
     
     def _calculate_element_strain_energy(self, elem_id: int, u: np.ndarray,
                                        d: np.ndarray, use_decomposition: bool) -> float:
         """Calcule l'énergie de déformation d'un élément"""
+        # Ne calculer l'énergie que pour la glace (pas de dégradation du substrat)
+        if self.mesh.material_id[elem_id] == 0:  # Substrat
+            # Pour le substrat, énergie élastique simple sans dégradation
+            psi_gauss = self.calculate_strain_energy_density_at_gauss_points(
+                elem_id, u, use_decomposition=False  # Pas de décomposition pour le substrat
+            )
+            elem_volume = self._element_volumes[elem_id]
+            elem_energy = np.sum(psi_gauss) * elem_volume / 4.0
+            return elem_energy
+        
+        # Pour la glace : avec dégradation
         # Endommagement moyen de l'élément
         element_nodes = self.mesh.elements[elem_id]
         elem_damage = np.mean(d[element_nodes])
@@ -343,7 +371,14 @@ class EnergyCalculator:
         elem_volume = self._element_volumes[elem_id]
         
         # Énergie totale de l'élément (intégration)
-        elem_energy = damage_factor * np.sum(psi_gauss) * elem_volume / 4.0
+        # Pour la glace avec décomposition : seule la partie positive est dégradée
+        if use_decomposition:
+            # ψ = g(d) * ψ⁺ + ψ⁻
+            # Mais ici on a déjà seulement ψ⁺ dans psi_gauss
+            elem_energy = damage_factor * np.sum(psi_gauss) * elem_volume / 4.0
+        else:
+            # Sans décomposition : toute l'énergie est dégradée
+            elem_energy = damage_factor * np.sum(psi_gauss) * elem_volume / 4.0
         
         return elem_energy
     

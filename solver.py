@@ -116,11 +116,6 @@ class HHTAlphaSolver:
             # Calculer l'accélération avec Newmark
             a = self._compute_acceleration(u, u_prev, v_prev, a_prev, dt)
 
-            # Assembler les matrices
-            #K_curr, M, f_ext_curr = self.assembler.assemble_system(
-            #    u, d, time, loading_params, 
-            #    use_decomposition=self.assembler.materials.use_decomposition  
-            #)
             # Assembler les matrices avec u_prev # CORRECTION
             K_curr, M, f_ext_curr = self.assembler.assemble_system(
                 u, u_prev, d, time, loading_params, 
@@ -221,17 +216,19 @@ class HHTAlphaSolver:
         alpha = params['alpha_HHT']
 
         # Forces internes au temps n+1
-        f_int_curr = K_curr @ u
+        # Utilise les projecteurs stockés dans l'assembleur pour la cohérence
+        f_int_curr = self.assembler.get_internal_forces(u, d, use_cache=False)
 
         # Forces au temps précédent si nécessaire
         if abs(alpha) > 1e-10:
-            # Recalculer les forces externes au temps précédent
-            K_prev, _, f_ext_prev = self.assembler.assemble_system(
+            # Forces internes au temps n
+            f_int_prev = self.assembler.get_internal_forces(u_prev, d, use_cache=False)
+            
+            # Forces externes au temps précédent
+            _, _, f_ext_prev = self.assembler.assemble_system(
                 u_prev, u_prev, d, time - dt, params['loading_params'], 
                 use_decomposition=params.get('use_decomposition', False)
             )
-            # Forces internes au temps précédent
-            f_int_prev = K_prev @ u_prev
         else:
             f_int_prev = np.zeros_like(f_int_curr)
             f_ext_prev = np.zeros_like(f_ext_curr)

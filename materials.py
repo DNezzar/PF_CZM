@@ -243,8 +243,10 @@ class SpectralDecomposition:
             if debug:
                 print("Déformation très petite détectée, retour de décomposition nulle")
             zero_strain = np.zeros_like(strain_vector)
-            P_pos = 0.5 * np.eye(3, dtype=np.float64)
-            P_neg = 0.5 * np.eye(3, dtype=np.float64)
+            # Pour les déformations nulles, les projecteurs sont indéterminés
+            # On peut utiliser P+ = I et P- = 0 ou P+ = P- = 0.5*I
+            P_pos = np.eye(3, dtype=np.float64)
+            P_neg = np.zeros((3, 3), dtype=np.float64)
             return zero_strain, zero_strain, P_pos, P_neg
     
         try:
@@ -252,6 +254,7 @@ class SpectralDecomposition:
             C_sqrt, C_inv_sqrt = self.material_manager.get_stiffness_sqrt_matrices(E, nu)
         except Exception as e:
             print(f"Erreur dans get_stiffness_sqrt_matrices: {e}")
+            # Fallback : décomposition simple
             half_strain = strain_vector * 0.5
             P_pos = 0.5 * np.eye(3, dtype=np.float64)
             P_neg = 0.5 * np.eye(3, dtype=np.float64)
