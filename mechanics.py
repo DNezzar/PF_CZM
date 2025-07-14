@@ -38,181 +38,149 @@ class ElementMatrices:
         ]
         self.gauss_weights = np.ones(4)
         
-        # Cache pour les calculs répétitifs
+        # Cache pour les calculs
         self._B_cache = {}
         self._detJ_cache = {}
     
-    def get_stiffness_matrix(self, elem_id: int, u: np.ndarray, u_prev: np.ndarray,
-                           d: np.ndarray, use_decomposition: bool = False) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
+    def get_stiffness_matrix(self, elem_id: int, u: np.ndarray, 
+                           d: np.ndarray, P_pos_elem: List[np.ndarray], 
+                           P_neg_elem: List[np.ndarray]) -> np.ndarray:
         """
-        Calcule la matrice de rigidité élémentaire selon l'équation (26)
-
-        Parameters:
-            elem_id: Identifiant de l'élément
-            u: Déplacements actuels (pour l'itération courante)
-            u_prev: Déplacements du pas de temps précédent
-            d: Endommagement nodal
-            use_decomposition: Utiliser la décomposition spectrale
+        Calcule la matrice de rigidité élémentaire selon SD3
         """
         # Récupérer les données de l'élément
         element_nodes = self.mesh.elements[elem_id]
         x_coords = self.mesh.nodes[element_nodes, 0]
         y_coords = self.mesh.nodes[element_nodes, 1]
-
+        
+        # Déplacements nodaux
+        u_elem = self._extract_element_displacements(element_nodes, u)
+        
         # Propriétés matériaux
         mat_props = self.materials.get_properties(self.mesh.material_id[elem_id])
         D = self.materials.get_constitutive_matrix(self.mesh.material_id[elem_id])
-
-        # Initialiser la matrice de rigidité
+        
+        # Initialiser la matrice
         K_elem = np.zeros((8, 8), dtype=np.float64)
-
-        # Listes pour stocker les projecteurs
-        P_pos_list = []
-        P_neg_list = []
-
+        
         # Intégration sur les points de Gauss
         for gp_idx, (xi, eta) in enumerate(self.gauss_points):
             # Matrice B et jacobien
             B, detJ = self._get_B_matrix_and_jacobian(elem_id, xi, eta, x_coords, y_coords)
-
-            # Matrice constitutive à utiliser
-            D_effective = D.copy()
-
-            # Appliquer la dégradation seulement pour la glace
+            
+            # Matrice constitutive effective
             if self.mesh.material_id[elem_id] == 1:  # Glace
                 # Interpoler l'endommagement
                 N = self._shape_functions(xi, eta)
                 damage_gauss = np.dot(N, d[element_nodes])
                 g_d = self.materials.degradation_function(damage_gauss)
-
-                if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
-                    # Extraire les déplacements du pas précédent
-                    u_elem_prev = self._extract_element_displacements(element_nodes, u_prev)
-                    strain_prev = B @ u_elem_prev
-
-                    # Vérifier si la déformation est significative
-                    strain_norm = np.linalg.norm(strain_prev)
-
-                    if strain_norm > 1e-12:
-                        # Décomposition spectrale
-                        try:
-                            strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
-                                strain_prev, mat_props.E, mat_props.nu
-                            )
-
-                            # Calculer la matrice constitutive dégradée selon l'équation (26)
-                            # D_degraded = g(d) * P+ : C : P+ + P- : C : P-
-                            D_effective = g_d * (P_pos.T @ D @ P_pos) + (P_neg.T @ D @ P_neg)
-
-                            # Vérifier et forcer la symétrie
-                            D_effective = 0.5 * (D_effective + D_effective.T)
-
-                            P_pos_list.append(P_pos)
-                            P_neg_list.append(P_neg)
-
-                        except Exception as e:
-                            print(f"Erreur dans la décomposition spectrale: {e}")
-                            # Fallback : dégradation isotrope
-                            D_effective = g_d * D
-                            P_pos_list.append(np.eye(3))
-                            P_neg_list.append(np.zeros((3, 3)))
-                    else:
-                        # Déformation négligeable : dégradation isotrope
-                        D_effective = g_d * D
-                        P_pos_list.append(np.eye(3))
-                        P_neg_list.append(np.zeros((3, 3)))
+                
+                if self.materials.use_decomposition and gp_idx < len(P_pos_elem):
+                    # Utiliser les projecteurs fournis
+                    P_pos = P_pos_elem[gp_idx]
+                    P_neg = P_neg_elem[gp_idx]
+                    
+                    # Matrice constitutive dégradée selon SD3
+                    D_effective = g_d * (P_pos.T @ D @ P_pos) + (P_neg.T @ D @ P_neg)
                 else:
-                    # Sans décomposition : dégradation isotrope simple
+                    # Sans décomposition: dégradation isotrope
                     D_effective = g_d * D
-                    P_pos_list.append(np.eye(3))
-                    P_neg_list.append(np.zeros((3, 3)))
             else:
-                # Substrat : pas de dégradation
-                P_pos_list.append(np.eye(3))
-                P_neg_list.append(np.zeros((3, 3)))
-
+                # Substrat: pas de dégradation
+                D_effective = D
+            
             # Contribution à la matrice de rigidité
             K_elem += B.T @ D_effective @ B * detJ * self.gauss_weights[gp_idx]
-
-        return K_elem, P_pos_list, P_neg_list
+        
+        return K_elem
     
     def get_mass_matrix(self, elem_id: int) -> np.ndarray:
-        """
-        Calcule la matrice de masse élémentaire (cohérente)
-        
-        Returns:
-            M_elem: Matrice de masse 8x8
-        """
-        # Récupérer les données de l'élément
+        """Calcule la matrice de masse élémentaire"""
         element_nodes = self.mesh.elements[elem_id]
         x_coords = self.mesh.nodes[element_nodes, 0]
         y_coords = self.mesh.nodes[element_nodes, 1]
         
-        # Propriétés matériaux
         mat_props = self.materials.get_properties(self.mesh.material_id[elem_id])
         rho = mat_props.rho
         
-        # Initialiser la matrice de masse
         M_elem = np.zeros((8, 8), dtype=np.float64)
         
-        # Intégration sur les points de Gauss
         for xi, eta in self.gauss_points:
-            # Fonctions de forme
             N = self._shape_functions(xi, eta)
-            
-            # Matrice N étendue
             N_matrix = self._build_N_matrix(N)
-            
-            # Jacobien
             detJ = self._calculate_jacobian(xi, eta, x_coords, y_coords)
-            
-            # Contribution à la matrice de masse
             M_elem += rho * N_matrix.T @ N_matrix * detJ
         
         return M_elem
     
     def get_centrifugal_force(self, elem_id: int, omega: float, 
                             load_factor: float = 1.0) -> np.ndarray:
-        """
-        Calcule le vecteur de force centrifuge élémentaire
-        
-        Returns:
-            f_elem: Vecteur de force 8x1
-        """
-        # Récupérer les données de l'élément
+        """Calcule le vecteur de force centrifuge élémentaire"""
         element_nodes = self.mesh.elements[elem_id]
         x_coords = self.mesh.nodes[element_nodes, 0]
         y_coords = self.mesh.nodes[element_nodes, 1]
         
-        # Propriétés matériaux
         mat_props = self.materials.get_properties(self.mesh.material_id[elem_id])
         rho = mat_props.rho
         
-        # Initialiser le vecteur de force
         f_elem = np.zeros(8, dtype=np.float64)
         
-        # Intégration sur les points de Gauss
         for xi, eta in self.gauss_points:
-            # Fonctions de forme
             N = self._shape_functions(xi, eta)
-            
-            # Position x au point de Gauss
             x_gauss = np.dot(N, x_coords)
-            
-            # Force centrifuge (direction radiale = x)
             f_centrifugal = load_factor * rho * omega**2 * x_gauss
-            
-            # Jacobien
             detJ = self._calculate_jacobian(xi, eta, x_coords, y_coords)
             
-            # Contribution au vecteur de force (seulement composante x)
             for i in range(4):
                 f_elem[2*i] += N[i] * f_centrifugal * detJ
         
         return f_elem
     
+    def compute_strain_and_projectors(self, elem_id: int, u: np.ndarray) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+        """
+        Calcule les projecteurs P+ et P- pour chaque point de Gauss selon SD3
+        """
+        element_nodes = self.mesh.elements[elem_id]
+        x_coords = self.mesh.nodes[element_nodes, 0]
+        y_coords = self.mesh.nodes[element_nodes, 1]
+        
+        u_elem = self._extract_element_displacements(element_nodes, u)
+        
+        mat_props = self.materials.get_properties(self.mesh.material_id[elem_id])
+        
+        P_pos_list = []
+        P_neg_list = []
+        
+        # Si pas de décomposition ou substrat, utiliser l'identité
+        if not self.materials.use_decomposition or self.mesh.material_id[elem_id] == 0:
+            for _ in self.gauss_points:
+                P_pos_list.append(np.eye(3))
+                P_neg_list.append(np.zeros((3, 3)))
+            return P_pos_list, P_neg_list
+        
+        # Pour la glace avec décomposition
+        if hasattr(self.materials, 'spectral_decomp'):
+            for xi, eta in self.gauss_points:
+                B, _ = self._get_B_matrix_and_jacobian(elem_id, xi, eta, x_coords, y_coords)
+                strain = B @ u_elem
+                
+                # Décomposition spectrale SD3
+                _, _, P_pos, P_neg = self.materials.spectral_decomp.decompose(
+                    strain, mat_props.E, mat_props.nu
+                )
+                
+                P_pos_list.append(P_pos)
+                P_neg_list.append(P_neg)
+        else:
+            # Fallback si pas de décomposition spectrale
+            for _ in self.gauss_points:
+                P_pos_list.append(np.eye(3))
+                P_neg_list.append(np.zeros((3, 3)))
+        
+        return P_pos_list, P_neg_list
+    
     def _shape_functions(self, xi: float, eta: float) -> np.ndarray:
-        """Calcule les fonctions de forme"""
+        """Fonctions de forme"""
         N1 = 0.25 * (1.0 - xi) * (1.0 - eta)
         N2 = 0.25 * (1.0 + xi) * (1.0 - eta)
         N3 = 0.25 * (1.0 + xi) * (1.0 + eta)
@@ -221,7 +189,7 @@ class ElementMatrices:
     
     def _get_B_matrix_and_jacobian(self, elem_id: int, xi: float, eta: float,
                                   x_coords: np.ndarray, y_coords: np.ndarray) -> Tuple[np.ndarray, float]:
-        """Calcule la matrice B et le jacobien (avec cache)"""
+        """Calcule la matrice B et le jacobien"""
         cache_key = (elem_id, xi, eta)
         
         if cache_key in self._B_cache:
@@ -251,7 +219,6 @@ class ElementMatrices:
         
         detJ = np.linalg.det(J)
         
-        # Protection contre les jacobiens singuliers
         if abs(detJ) < 1e-12:
             detJ = 1e-12 if detJ >= 0 else -1e-12
         
@@ -269,7 +236,6 @@ class ElementMatrices:
             B[2, 2*i] = dN_dy[i]      # du/dy
             B[2, 2*i+1] = dN_dx[i]    # dv/dx
         
-        # Stocker dans le cache
         self._B_cache[cache_key] = B
         self._detJ_cache[cache_key] = detJ
         
@@ -278,7 +244,6 @@ class ElementMatrices:
     def _calculate_jacobian(self, xi: float, eta: float,
                           x_coords: np.ndarray, y_coords: np.ndarray) -> float:
         """Calcule le déterminant du jacobien"""
-        # Dérivées des fonctions de forme
         dN_dxi = np.array([
             -0.25 * (1.0 - eta),
             0.25 * (1.0 - eta),
@@ -293,7 +258,6 @@ class ElementMatrices:
             0.25 * (1.0 - xi)
         ])
         
-        # Jacobien
         J11 = np.dot(dN_dxi, x_coords)
         J12 = np.dot(dN_dxi, y_coords)
         J21 = np.dot(dN_deta, x_coords)
@@ -302,7 +266,7 @@ class ElementMatrices:
         return J11 * J22 - J12 * J21
     
     def _build_N_matrix(self, N: np.ndarray) -> np.ndarray:
-        """Construit la matrice N étendue pour les déplacements"""
+        """Construit la matrice N étendue"""
         N_matrix = np.zeros((2, 8))
         for i in range(4):
             N_matrix[0, 2*i] = N[i]
@@ -330,111 +294,160 @@ class SystemAssembler:
         self.cohesive = cohesive_manager
         self.elem_matrices = element_matrices
         
-        # Stockage des projecteurs pour la décomposition spectrale
-        self.P_pos_prev = {}
-        self.P_neg_prev = {}
-        self._initialize_projection_tensors()
+        # Stockage des projecteurs
+        self.P_pos_stored = {}
+        self.P_neg_stored = {}
         
         # Cache pour les forces internes
         self._internal_forces_cache = None
         self._cache_u = None
         self._cache_d = None
     
-    def _initialize_projection_tensors(self):
-        """Initialise les tenseurs de projection"""
-        for e in range(self.mesh.num_elements):
-            # Au début, utiliser P+ = I et P- = 0 (pas de compression)
-            # Cela correspond à un matériau non endommagé au repos
-            self.P_pos_prev[e] = [np.eye(3, dtype=np.float64) for _ in range(4)]
-            self.P_neg_prev[e] = [np.zeros((3, 3), dtype=np.float64) for _ in range(4)]
-    
     def assemble_system(self, u: np.ndarray, u_prev: np.ndarray, d: np.ndarray, 
                        time: float, loading_params: LoadingParameters,
                        use_decomposition: bool = False) -> Tuple[csr_matrix, csr_matrix, np.ndarray]:
         """
-        Assemble les matrices et vecteurs du système global
-
-        Parameters:
-            u: Déplacements actuels (pour l'itération courante)
-            u_prev: Déplacements du pas de temps précédent (pour les projecteurs)
-            d: Endommagement
-            time: Temps actuel
-            loading_params: Paramètres de chargement
-            use_decomposition: Utiliser la décomposition spectrale
+        Assemble les matrices et vecteurs du système global selon SD3
         """
         # Initialiser les matrices creuses
         K = lil_matrix((self.mesh.num_dofs_u, self.mesh.num_dofs_u), dtype=np.float64)
         M = lil_matrix((self.mesh.num_dofs_u, self.mesh.num_dofs_u), dtype=np.float64)
         f_ext = np.zeros(self.mesh.num_dofs_u, dtype=np.float64)
-
+        
         # Facteur de charge
         load_factor = loading_params.get_load_factor(time)
-
-        # Nouveaux projecteurs pour le pas suivant
-        P_pos_new = {}
-        P_neg_new = {}
-
-        # Assembler les éléments quadrilatéraux
+        
+        # Calculer d'abord tous les projecteurs si décomposition activée
+        if use_decomposition:
+            for e in range(self.mesh.num_elements):
+                if self.mesh.material_id[e] == 1:  # Glace seulement
+                    # Utiliser u_prev pour calculer les projecteurs
+                    P_pos_elem, P_neg_elem = self.elem_matrices.compute_strain_and_projectors(e, u_prev)
+                    self.P_pos_stored[e] = P_pos_elem
+                    self.P_neg_stored[e] = P_neg_elem
+        
+        # Assembler les éléments
         for e in range(self.mesh.num_elements):
-            # DOFs globaux
             element_nodes = self.mesh.elements[e]
             dofs = self._get_element_dofs(element_nodes)
-
-            # Matrices élémentaires avec u_prev pour l'équation (26)
-            K_elem, P_pos_elem, P_neg_elem = self.elem_matrices.get_stiffness_matrix(
-                e, u, u_prev, d, use_decomposition
-            )
+            
+            # Récupérer les projecteurs stockés
+            P_pos_elem = self.P_pos_stored.get(e, [np.eye(3) for _ in range(4)])
+            P_neg_elem = self.P_neg_stored.get(e, [np.zeros((3, 3)) for _ in range(4)])
+            
+            # Matrices élémentaires
+            K_elem = self.elem_matrices.get_stiffness_matrix(e, u, d, P_pos_elem, P_neg_elem)
             M_elem = self.elem_matrices.get_mass_matrix(e)
-
+            
             # Forces centrifuges
             if loading_params.load_type == 'centrifugal':
-                f_elem = self.elem_matrices.get_centrifugal_force(
-                    e, loading_params.omega, load_factor
-                )
+                f_elem = self.elem_matrices.get_centrifugal_force(e, loading_params.omega, load_factor)
             else:
                 f_elem = np.zeros(8)
-
-            # Assembler dans les matrices globales
+            
+            # Assembler
             for i in range(8):
                 for j in range(8):
                     K[dofs[i], dofs[j]] += K_elem[i, j]
                     M[dofs[i], dofs[j]] += M_elem[i, j]
                 f_ext[dofs[i]] += f_elem[i]
-
-            # Stocker les nouveaux projecteurs
-            P_pos_new[e] = P_pos_elem
-            P_neg_new[e] = P_neg_elem
-
-        # Assembler les éléments cohésifs
+        
+        # Éléments cohésifs
         if self.cohesive is not None:
             for i, cohesive_elem in enumerate(self.mesh.cohesive_elements):
-                # Matrice de rigidité cohésive
                 K_coh = self.cohesive.get_cohesive_stiffness(i, u)
-
-                # DOFs cohésifs
                 dofs_coh = self._get_cohesive_dofs(cohesive_elem.nodes)
-
-                # Assembler
+                
                 for i in range(8):
                     for j in range(8):
                         K[dofs_coh[i], dofs_coh[j]] += K_coh[i, j]
-
-        # Mettre à jour les projecteurs pour le pas suivant
-        self.P_pos_prev = P_pos_new
-        self.P_neg_prev = P_neg_new
-
+        
         # Appliquer les conditions aux limites
         bc_dict = self.mesh.get_boundary_conditions()
         self._apply_boundary_conditions(K, M, f_ext, bc_dict)
-
-        # Convertir en format CSR pour la résolution
+        
+        # Convertir en CSR
         K = K.tocsr()
         M = M.tocsr()
-
-        # Invalider le cache des forces internes
+        
+        # Invalider le cache
         self._internal_forces_cache = None
-
+        
         return K, M, f_ext
+    
+    def get_internal_forces(self, u: np.ndarray, d: np.ndarray, use_cache: bool = False) -> np.ndarray:
+        """
+        Calcule les forces internes selon SD3
+        """
+        if use_cache and self._internal_forces_cache is not None:
+            if np.array_equal(u, self._cache_u) and np.array_equal(d, self._cache_d):
+                return self._internal_forces_cache.copy()
+        
+        f_int = np.zeros(self.mesh.num_dofs_u)
+        
+        for e in range(self.mesh.num_elements):
+            element_nodes = self.mesh.elements[e]
+            x_coords = self.mesh.nodes[element_nodes, 0]
+            y_coords = self.mesh.nodes[element_nodes, 1]
+            
+            mat_props = self.materials.get_properties(self.mesh.material_id[e])
+            D = self.materials.get_constitutive_matrix(self.mesh.material_id[e])
+            
+            u_elem = np.zeros(8)
+            for i in range(4):
+                node = element_nodes[i]
+                u_elem[2*i] = u[self.mesh.dof_map_u[node, 0]]
+                u_elem[2*i+1] = u[self.mesh.dof_map_u[node, 1]]
+            
+            f_elem = np.zeros(8)
+            
+            # Récupérer les projecteurs stockés
+            P_pos_elem = self.P_pos_stored.get(e, [np.eye(3) for _ in range(4)])
+            P_neg_elem = self.P_neg_stored.get(e, [np.zeros((3, 3)) for _ in range(4)])
+            
+            for gp_idx, (xi, eta) in enumerate(self.elem_matrices.gauss_points):
+                B, detJ = self.elem_matrices._get_B_matrix_and_jacobian(
+                    e, xi, eta, x_coords, y_coords
+                )
+                
+                strain = B @ u_elem
+                
+                if self.mesh.material_id[e] == 1:  # Glace
+                    N = self.elem_matrices._shape_functions(xi, eta)
+                    damage_gauss = np.dot(N, d[element_nodes])
+                    g_d = self.materials.degradation_function(damage_gauss)
+                    
+                    if self.materials.use_decomposition and gp_idx < len(P_pos_elem):
+                        P_pos = P_pos_elem[gp_idx]
+                        P_neg = P_neg_elem[gp_idx]
+                        
+                        # Contrainte selon SD3
+                        stress_pos = P_pos.T @ D @ strain
+                        stress_neg = P_neg.T @ D @ strain
+                        stress = g_d * stress_pos + stress_neg
+                    else:
+                        stress = g_d * D @ strain
+                else:
+                    # Substrat
+                    stress = D @ strain
+                
+                f_elem += B.T @ stress * detJ * self.elem_matrices.gauss_weights[gp_idx]
+            
+            dofs = self._get_element_dofs(element_nodes)
+            for i in range(8):
+                f_int[dofs[i]] += f_elem[i]
+        
+        # Forces cohésives
+        if self.cohesive is not None:
+            f_coh = self.cohesive.calculate_interface_forces(u)
+            f_int += f_coh
+        
+        if use_cache:
+            self._internal_forces_cache = f_int.copy()
+            self._cache_u = u.copy()
+            self._cache_d = d.copy()
+        
+        return f_int
     
     def _get_element_dofs(self, element_nodes: np.ndarray) -> np.ndarray:
         """Récupère les DOFs globaux d'un élément"""
@@ -463,7 +476,6 @@ class SystemAssembler:
     
     def _apply_boundary_conditions(self, K, M, f, bc_dict: Dict):
         """Applique les conditions aux limites"""
-        # Nœuds complètement fixés
         for node in bc_dict.get('fully_fixed', []):
             for dof in range(2):
                 dof_idx = self.mesh.dof_map_u[node, dof]
@@ -477,7 +489,6 @@ class SystemAssembler:
                 
                 f[dof_idx] = 0.0
         
-        # Nœuds fixés en x seulement
         for node in bc_dict.get('fixed_x', []):
             dof_idx = self.mesh.dof_map_u[node, 0]
             K[dof_idx, :] = 0.0
@@ -490,7 +501,6 @@ class SystemAssembler:
             
             f[dof_idx] = 0.0
         
-        # Nœuds fixés en y seulement
         for node in bc_dict.get('fixed_y', []):
             dof_idx = self.mesh.dof_map_u[node, 1]
             K[dof_idx, :] = 0.0
@@ -502,242 +512,3 @@ class SystemAssembler:
             M[dof_idx, dof_idx] = 1.0
             
             f[dof_idx] = 0.0
-    
-    def get_internal_forces(self, u: np.ndarray, d: np.ndarray, use_cache: bool = False) -> np.ndarray:
-        """
-        Calcule les forces internes incluant les contributions volumiques et cohésives
-
-        Parameters:
-            u: Déplacements actuels
-            d: Endommagement
-            use_cache: Utiliser le cache si disponible
-
-        Returns:
-            Forces internes totales
-        """
-        # Vérifier le cache
-        if use_cache and self._internal_forces_cache is not None:
-            if np.array_equal(u, self._cache_u) and np.array_equal(d, self._cache_d):
-                return self._internal_forces_cache.copy()
-
-        f_int = np.zeros(self.mesh.num_dofs_u)
-
-        # Déterminer si on utilise la décomposition
-        use_decomposition = self.materials.use_decomposition
-
-        # Forces des éléments volumiques
-        for e in range(self.mesh.num_elements):
-            # Récupérer les données de l'élément
-            element_nodes = self.mesh.elements[e]
-            x_coords = self.mesh.nodes[element_nodes, 0]
-            y_coords = self.mesh.nodes[element_nodes, 1]
-
-            # Propriétés matériaux
-            mat_props = self.materials.get_properties(self.mesh.material_id[e])
-            D = self.materials.get_constitutive_matrix(self.mesh.material_id[e])
-
-            # Déplacements élémentaires
-            u_elem = np.zeros(8)
-            for i in range(4):
-                node = element_nodes[i]
-                u_elem[2*i] = u[self.mesh.dof_map_u[node, 0]]
-                u_elem[2*i+1] = u[self.mesh.dof_map_u[node, 1]]
-
-            # Forces élémentaires
-            f_elem = np.zeros(8)
-
-            # Intégration sur les points de Gauss
-            for gp_idx, (xi, eta) in enumerate(self.elem_matrices.gauss_points):
-                # Matrice B et jacobien
-                B, detJ = self.elem_matrices._get_B_matrix_and_jacobian(
-                    e, xi, eta, x_coords, y_coords
-                )
-
-                # Déformation au point de Gauss
-                strain = B @ u_elem
-
-                # Contrainte selon le type de matériau
-                if self.mesh.material_id[e] == 1:  # Glace
-                    # Interpoler l'endommagement
-                    N = self.elem_matrices._shape_functions(xi, eta)
-                    damage_gauss = np.dot(N, d[element_nodes])
-                    g_d = self.materials.degradation_function(damage_gauss)
-
-                    if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
-                        # Vérifier si on a des projecteurs stockés
-                        if e in self.P_pos_prev and gp_idx < len(self.P_pos_prev[e]):
-                            P_pos = self.P_pos_prev[e][gp_idx]
-                            P_neg = self.P_neg_prev[e][gp_idx]
-
-                            # Contrainte avec décomposition spectrale
-                            # σ = g(d) * P+ : C : ε + P- : C : ε
-                            stress_pos = P_pos.T @ D @ strain
-                            stress_neg = P_neg.T @ D @ strain
-                            stress = g_d * stress_pos + stress_neg
-                        else:
-                            # Pas de projecteurs : dégradation isotrope
-                            stress = g_d * D @ strain
-                    else:
-                        # Sans décomposition : dégradation isotrope simple
-                        stress = g_d * D @ strain
-                else:
-                    # Substrat : pas de dégradation
-                    stress = D @ strain
-
-                # Contribution aux forces internes
-                f_elem += B.T @ stress * detJ * self.elem_matrices.gauss_weights[gp_idx]
-
-            # Assembler
-            dofs = self._get_element_dofs(element_nodes)
-            for i in range(8):
-                f_int[dofs[i]] += f_elem[i]
-
-        # Forces cohésives
-        if self.cohesive is not None:
-            f_coh = self.cohesive.calculate_interface_forces(u)
-            f_int += f_coh
-
-        # Mettre en cache si demandé
-        if use_cache:
-            self._internal_forces_cache = f_int.copy()
-            self._cache_u = u.copy()
-            self._cache_d = d.copy()
-
-        return f_int
-    
-    def reset_projection_tensors(self):
-        """Réinitialise les tenseurs de projection de manière sûre"""
-        self.P_pos_prev = {}
-        self.P_neg_prev = {}
-
-        for e in range(self.mesh.num_elements):
-            # Initialiser avec l'identité pour P+ et zéro pour P-
-            # Cela correspond à un matériau non endommagé sans compression
-            self.P_pos_prev[e] = [np.eye(3, dtype=np.float64) for _ in range(4)]
-            self.P_neg_prev[e] = [np.zeros((3, 3), dtype=np.float64) for _ in range(4)]
-
-        # Réinitialiser aussi le cache des forces internes
-        self._internal_forces_cache = None
-        self._cache_u = None
-        self._cache_d = None
-
-        print("Tenseurs de projection réinitialisés")
-
-    def validate_projection_tensors(self):
-        """Valide que les tenseurs de projection sont corrects"""
-        for e in self.P_pos_prev:
-            for gp_idx, (P_pos, P_neg) in enumerate(zip(self.P_pos_prev[e], self.P_neg_prev[e])):
-                # Vérifier que P+ + P- = I (approximativement)
-                P_sum = P_pos + P_neg
-                identity_error = np.linalg.norm(P_sum - np.eye(3))
-                
-                if identity_error > 1e-10:
-                    print(f"Warning: P+ + P- != I pour élément {e}, GP {gp_idx}")
-                    print(f"  Erreur: {identity_error}")
-                
-                # Vérifier l'idempotence
-                P_pos_idemp_error = np.linalg.norm(P_pos @ P_pos - P_pos)
-                P_neg_idemp_error = np.linalg.norm(P_neg @ P_neg - P_neg)
-                
-                if P_pos_idemp_error > 1e-10 or P_neg_idemp_error > 1e-10:
-                    print(f"Warning: Projecteurs non idempotents pour élément {e}, GP {gp_idx}")
-                    print(f"  P+ erreur: {P_pos_idemp_error}, P- erreur: {P_neg_idemp_error}")
-
-
-class ResidualCalculator:
-    """Calcul des résidus pour les solveurs non-linéaires"""
-    
-    def __init__(self, system_assembler: SystemAssembler):
-        self.assembler = system_assembler
-    
-    def compute_mechanical_residual(self, u: np.ndarray, v: np.ndarray, a: np.ndarray,
-                                  u_prev: np.ndarray, v_prev: np.ndarray, a_prev: np.ndarray,
-                                  d: np.ndarray, time: float, dt: float,
-                                  params: Dict) -> np.ndarray:
-        """
-        Calcule le résidu mécanique pour le schéma HHT-α
-        
-        R = M*a_{n+1} + (1+α)*f_int(u_{n+1}) - α*f_int(u_n) - (1+α)*f_ext(t_{n+1}) + α*f_ext(t_n)
-        """
-        alpha = params['alpha_HHT']
-        loading_params = params['loading_params']
-        
-        # Assembler les matrices au temps n+1
-        K_curr, M, f_ext_curr = self.assembler.assemble_system(
-            u, u_prev, d, time, loading_params, params.get('use_decomposition', False)
-        )
-        
-        # Forces internes au temps n+1
-        f_int_curr = self.assembler.get_internal_forces(u, d)
-        
-        # Forces au temps n si nécessaire
-        if abs(alpha) > 1e-10:
-            # Forces externes au temps n
-            _, _, f_ext_prev = self.assembler.assemble_system(
-                u_prev, d, time - dt, loading_params, params.get('use_decomposition', False)
-            )
-            # Forces internes au temps n
-            f_int_prev = self.assembler.get_internal_forces(u_prev, d)
-        else:
-            f_int_prev = np.zeros_like(f_int_curr)
-            f_ext_prev = np.zeros_like(f_ext_curr)
-        
-        # Résidu HHT-α
-        residual = (M @ a + 
-                   (1.0 + alpha) * f_int_curr - 
-                   alpha * f_int_prev - 
-                   (1.0 + alpha) * f_ext_curr + 
-                   alpha * f_ext_prev)
-        
-        # Appliquer les conditions aux limites au résidu
-        bc_dict = self.assembler.mesh.get_boundary_conditions()
-        self._apply_bc_to_residual(residual, bc_dict)
-        
-        return residual
-    
-    def compute_staggered_residual(self, u_old: np.ndarray, u_new: np.ndarray,
-                                 d_old: np.ndarray, d_new: np.ndarray) -> Dict[str, float]:
-        """
-        Calcule les résidus pour la convergence du schéma décalé
-        
-        Returns:
-            Dictionnaire avec les normes des résidus
-        """
-        # Résidu en déplacement
-        u_diff = np.linalg.norm(u_new - u_old)
-        u_norm = np.linalg.norm(u_new) + 1e-10
-        u_residual = u_diff / u_norm
-        
-        # Résidu en endommagement
-        d_diff = np.linalg.norm(d_new - d_old)
-        d_norm = np.linalg.norm(d_new) + 1e-10
-        d_residual = d_diff / d_norm
-        
-        # Résidu combiné
-        combined_residual = np.sqrt(u_residual**2 + d_residual**2)
-        
-        return {
-            'displacement': u_residual,
-            'damage': d_residual,
-            'combined': combined_residual,
-            'u_diff': u_diff,
-            'd_diff': d_diff
-        }
-    
-    def _apply_bc_to_residual(self, residual: np.ndarray, bc_dict: Dict):
-        """Applique les conditions aux limites au résidu"""
-        # Nœuds complètement fixés
-        for node in bc_dict.get('fully_fixed', []):
-            for dof in range(2):
-                dof_idx = self.assembler.mesh.dof_map_u[node, dof]
-                residual[dof_idx] = 0.0
-        
-        # Nœuds fixés en x
-        for node in bc_dict.get('fixed_x', []):
-            dof_idx = self.assembler.mesh.dof_map_u[node, 0]
-            residual[dof_idx] = 0.0
-        
-        # Nœuds fixés en y
-        for node in bc_dict.get('fixed_y', []):
-            dof_idx = self.assembler.mesh.dof_map_u[node, 1]
-            residual[dof_idx] = 0.0
