@@ -299,24 +299,26 @@ class EnergyCalculator:
                 # psi_gauss[gp_idx] = max(0.0, psi_pos)  # Assurer positivité
                 
             else:
-                # Sans décomposition - énergie totale
+                # Sans décomposition - calculer ψ⁺ via contraintes principales
                 stress = D @ strain
-                psi_total = 0.5 * np.dot(strain, stress)
-                
-                # CORRECTION : Pour le champ de phase sans décomposition,
-                # on peut utiliser un critère simple (par exemple, seulement si en traction)
-                if self.mesh.material_id[elem_id] == 1:  # Glace seulement
-                    # Critère simple : énergie seulement si trace(strain) > 0 (dilatation)
-                    trace_strain = strain[0] + strain[1]  # εxx + εyy
-                    if trace_strain > 0:
-                        psi_gauss[gp_idx] = psi_total
-                    else:
-                        psi_gauss[gp_idx] = 0.0
-                else:
-                    # Substrat : pas d'endommagement
-                    psi_gauss[gp_idx] = 0.0
+                stress_tensor = np.array([
+                    [stress[0], stress[2]/2.0],
+                    [stress[2]/2.0, stress[1]]
+                ])
     
-        # CORRECTION : S'assurer que les valeurs sont positives ou nulles
+                # Contraintes principales
+                principal_stresses = np.linalg.eigvalsh(stress_tensor)
+    
+                # Parties positives
+                sigma_pos = np.maximum(principal_stresses, 0.0)
+    
+                # Énergie positive
+                if self.materials.plane_strain:
+                    psi_gauss[gp_idx] = (1.0/(2.0*mat_props.E)) * np.sum(sigma_pos**2)
+                else:
+                    psi_gauss[gp_idx] = (1.0/(2.0*mat_props.E)) * (sigma_pos[0]**2 + sigma_pos[1]**2 - 2.0*mat_props.nu*sigma_pos[0]*sigma_pos[1])
+    
+                # CORRECTION : S'assurer que les valeurs sont positives ou nulles
         psi_gauss = np.maximum(psi_gauss, 0.0)
         
         return psi_gauss

@@ -9,7 +9,7 @@ from model import IceSubstratePhaseFieldFracture
 # ============================================================
 
 # --- Paramètres du maillage ---
-nx = 150                   # Nombre d'éléments en X
+nx = 100                   # Nombre d'éléments en X
 ny_ice = 5                 # Nombre d'éléments dans la glace
 ny_substrate = 5            # Nombre d'éléments dans le substrat
 length = 170.0              # Longueur du domaine (mm)
@@ -19,8 +19,8 @@ substrate_height = 6.4      # Hauteur du substrat (mm)
 
 # --- Paramètres de maillage progressif ---
 use_coarse_near_bc = True   # Activer le maillage grossier près de l'encastrement
-coarse_zone_length = 15.0   # Zone grossière de 0 à 25 mm
-coarsening_ratio = 100.0      # Éléments 4x plus gros à x=0
+coarse_zone_length = 15.0   # Zone grossière de 0 à x mm
+coarsening_ratio = 10.0      # Éléments 4x plus gros à x=0
 coarse_zone_reduction = 0.7 # Utiliser seulement 70% des éléments dans cette zone
 
 # --- Propriétés des matériaux ---
@@ -28,7 +28,7 @@ coarse_zone_reduction = 0.7 # Utiliser seulement 70% des éléments dans cette z
 E_ice = 1500.0              # Module de Young (MPa)
 nu_ice = 0.31               # Coefficient de Poisson
 rho_ice = 0.917e-9          # Densité (ton/mm³)
-Gc_ice = 0.001             # Énergie de rupture (N/mm)
+Gc_ice = 1e-3             # Énergie de rupture (N/mm)
 
 # Substrat (aluminium)
 E_sub = 69000.0             # Module de Young (MPa)
@@ -38,16 +38,16 @@ Gc_sub = 1.0e+8             # Énergie de rupture (N/mm) - très élevée
 
 # --- Propriétés cohésives de l'interface ---
 czm_mesh = True             # True: utilise des éléments cohésifs, False: maillage classique
-coh_normal_stiffness = 1.0e+4      # Rigidité normale (MPa/mm)
-coh_shear_stiffness = 1.0e+4      # Rigidité en cisaillement (MPa/mm)
+coh_normal_stiffness = 1.0e+8      # Rigidité normale (MPa/mm)
+coh_shear_stiffness = 1.0e+8     # Rigidité en cisaillement (MPa/mm)
 
 # RÉSISTANCES
-coh_normal_strength = 0.3          # Résistance normale (MPa)
-coh_shear_strength = 0.3           # Résistance en cisaillement (MPa)
+coh_normal_strength = 0.3e+6          # Résistance normale (MPa)
+coh_shear_strength = 0.3e+6           # Résistance en cisaillement (MPa)
 
 # ÉNERGIES DE RUPTURE
-coh_normal_Gc = 0.00056              # Énergie de rupture normale (N/mm)
-coh_shear_Gc = 0.00056               # Énergie de rupture en cisaillement (N/mm)
+coh_normal_Gc = 0.00056e+8              # Énergie de rupture normale (N/mm)
+coh_shear_Gc = 0.00056e+8               # Énergie de rupture en cisaillement (N/mm)
 
 # AUTRES PARAMÈTRES COHÉSIFS
 coh_compression_factor = 50.0       # Facteur de pénalité en compression
@@ -92,7 +92,7 @@ damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
 interface_damage_threshold = 0.8   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
-use_decomposition = False   # Décomposition spectrale
+use_decomposition = False         # Décomposition spectrale
 plane_strain = True              # Déformation plane (vs contrainte plane)
 save_plots = True                # Sauvegarder les graphiques
 display_plots = False            # Afficher les graphiques

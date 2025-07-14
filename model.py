@@ -151,7 +151,7 @@ class IceSubstratePhaseFieldFracture:
 
         # Options du modèle - CORRECTION : utiliser use_decomposition partout
         self.plane_strain = kwargs.get('plane_strain', True)
-        self.use_decomposition = kwargs.get('use_decomposition', kwargs.get('use_decomposition', False))
+        self.use_decomposition = kwargs.get('use_decomposition', False)
         self.total_time = kwargs.get('T', 1.0)    
     
     def _initialize_modules(self):
