@@ -455,7 +455,7 @@ class IceSubstratePhaseFieldFracture:
                 
                 # Champs aux points de Gauss
                 field_data = self.stress_calculator.calculate_stress_field(
-                    self.u, self.d, self.use_stress_decomposition
+                    self.u, self.d, self.use_decomposition
                 )
                 field_data['damage'] = field_data.pop('damage', self.d)
                 
@@ -685,7 +685,7 @@ if __name__ == "__main__":
         'staggered_iter_slow': 8,
         
         # Options
-        'use_stress_decomposition': True,
+        'use_decomposition': True,
         'save_plots': True,
         'display_plots': False,
         
