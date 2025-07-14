@@ -79,10 +79,13 @@ class HHTAlphaSolver:
     
     def solve_time_step(self, u_prev: np.ndarray, v_prev: np.ndarray, a_prev: np.ndarray,
                        d: np.ndarray, time: float, dt: float,
-                       loading_params) -> Tuple[np.ndarray, np.ndarray, np.ndarray, ConvergenceInfo]:
+                       loading_params, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray, ConvergenceInfo]:
         """
         Résout un pas de temps avec le schéma HHT-alpha
-
+    
+        Parameters:
+            debug: Activer le mode débogage détaillé
+    
         Returns:
             u: Déplacements au temps n+1
             v: Vitesses au temps n+1
@@ -92,55 +95,80 @@ class HHTAlphaSolver:
         # Prédicteurs (Newmark)
         u_pred = u_prev + dt * v_prev + 0.5 * dt**2 * ((1.0 - 2.0 * self.params.beta) * a_prev)
         v_pred = v_prev + dt * ((1.0 - self.params.gamma) * a_prev)
-
+    
         # Initialisation
         u = u_pred.copy()
         v = v_pred.copy()
         a = np.zeros_like(a_prev)
-
+    
         # Paramètres pour le calcul du résidu
         residual_params = {
             'alpha_HHT': self.params.alpha_HHT,
             'loading_params': loading_params,
-            'use_decomposition': self.assembler.materials.use_decomposition  # CORRECTION
+            'use_decomposition': self.assembler.materials.use_decomposition
         }
-
-        # Adapter la tolérance selon dt (pour petits pas de temps)
+    
+        # Adapter la tolérance selon dt
         adaptive_tol = self.params.newton_tol
-        #if dt < 1e-4:
-        #    adaptive_tol = min(1e-2, self.params.newton_tol * 100)
-        #    print(f"    Tolérance adaptée: {adaptive_tol:.3e} (dt petit)")
-
+        
+        # Vérifier si on démarre avec des déplacements très petits
+        if np.linalg.norm(u_prev) < 1e-10:
+            # Premier pas ou déplacements négligeables
+            # Utiliser une tolérance plus relâchée
+            adaptive_tol = max(self.params.newton_tol, 1e-3)
+            if debug:
+                print(f"    Premier pas détecté, tolérance adaptée: {adaptive_tol:.3e}")
+    
         # Itérations de Newton-Raphson
+        best_residual_norm = float('inf')
+        best_u = u.copy()
+        best_v = v.copy()
+        best_a = a.copy()
+        
         for newton_iter in range(self.params.max_newton_iter):
             # Calculer l'accélération avec Newmark
             a = self._compute_acceleration(u, u_prev, v_prev, a_prev, dt)
-
-            # Assembler les matrices avec u_prev # CORRECTION
-            K_curr, M, f_ext_curr = self.assembler.assemble_system(
-                u, u_prev, d, time, loading_params, 
-                use_decomposition=self.assembler.materials.use_decomposition
-            )
-
+    
+            # Assembler les matrices
+            try:
+                K_curr, M, f_ext_curr = self.assembler.assemble_system(
+                    u, u_prev, d, time, loading_params, 
+                    use_decomposition=self.assembler.materials.use_decomposition
+                )
+            except Exception as e:
+                print(f"    Erreur lors de l'assemblage: {e}")
+                break
+            
             # Calculer le résidu
             residual = self._compute_residual(
                 u, v, a, u_prev, v_prev, a_prev, d, 
                 K_curr, M, f_ext_curr, time, dt, residual_params
             )
-
+    
             # Vérifier la convergence
             residual_norm = np.linalg.norm(residual)
             u_norm = np.linalg.norm(u) + 1e-10
             relative_residual = residual_norm / u_norm
-
+    
             print(f"    Newton iter {newton_iter+1}: "
                   f"résidu = {residual_norm:.6e}, "
                   f"résidu relatif = {relative_residual:.6e}")
-
+    
+            # Sauvegarder si c'est le meilleur résultat
+            if residual_norm < best_residual_norm:
+                best_residual_norm = residual_norm
+                best_u = u.copy()
+                best_v = v.copy()
+                best_a = a.copy()
+    
+            # Mode debug
+            if debug and newton_iter == 0:
+                self.debug_convergence_info(u, u_prev, d, residual, newton_iter+1, "Newton")
+    
             if relative_residual < adaptive_tol:
                 # Mettre à jour la vitesse
                 v = v_prev + dt * ((1.0 - self.params.gamma) * a_prev + self.params.gamma * a)
-
+    
                 info = ConvergenceInfo(
                     converged=True,
                     iterations=newton_iter+1,
@@ -148,60 +176,90 @@ class HHTAlphaSolver:
                     relative_residual=relative_residual,
                     reason="Tolérance atteinte"
                 )
-
+    
                 self.total_newton_iterations += newton_iter + 1
                 return u, v, a, info
-
+    
             # Calculer la matrice effective
             K_eff = self._compute_effective_stiffness(K_curr, M, dt)
-
+    
+            # Diagnostic si problème de convergence
+            if newton_iter > 2 and residual_norm > 1e3:
+                print("    ⚠️ Convergence difficile détectée, diagnostic en cours...")
+                self.diagnose_convergence_issues(K_curr, M, residual, u, dt)
+    
             # Appliquer les conditions aux limites
             bc_dict = self.assembler.mesh.get_boundary_conditions()
             self._apply_bc_to_system(K_eff, residual, bc_dict)
-
+    
             # Résoudre le système linéaire
             try:
                 du = spsolve(K_eff, -residual)
                 self.total_linear_solves += 1
             except Exception as e:
                 print(f"    Erreur dans la résolution linéaire: {e}")
+                # Retourner la meilleure solution trouvée
+                info = ConvergenceInfo(
+                    converged=False,
+                    iterations=newton_iter+1,
+                    residual_norm=best_residual_norm,
+                    relative_residual=best_residual_norm/u_norm,
+                    reason=f"Erreur de résolution: {e}"
+                )
+                return best_u, best_v, best_a, info
+            
+            # Vérifier la solution
+            if np.any(np.isnan(du)) or np.any(np.isinf(du)):
+                print(f"    ⚠️ Solution invalide détectée (NaN ou Inf)")
                 break
             
-            # Recherche linéaire pour stabiliser
+            # Recherche linéaire améliorée
             alpha = 1.0
-            u_trial = u + alpha * du
-
-            # Si le résidu augmente trop, réduire alpha
-            for _ in range(5):
+            line_search_iters = 0
+            max_line_search = 10
+            
+            while line_search_iters < max_line_search:
+                u_trial = u + alpha * du
                 a_trial = self._compute_acceleration(u_trial, u_prev, v_prev, a_prev, dt)
+                
                 residual_trial = self._compute_residual(
                     u_trial, v, a_trial, u_prev, v_prev, a_prev, d,
                     K_curr, M, f_ext_curr, time, dt, residual_params
                 )
-
-                if np.linalg.norm(residual_trial) < residual_norm * 1.1:
+                
+                residual_trial_norm = np.linalg.norm(residual_trial)
+                
+                # Critère d'Armijo
+                if residual_trial_norm < residual_norm * (1.0 - 0.5 * alpha):
+                    u = u_trial
                     break
                 
                 alpha *= 0.5
-                u_trial = u + alpha * du
-
-                if alpha < 0.1:
+                line_search_iters += 1
+                
+                if alpha < 0.01:
+                    # Accepter quand même si la direction est descendante
+                    if residual_trial_norm < residual_norm:
+                        u = u_trial
                     break
                 
-            # Mettre à jour le déplacement
-            u = u_trial
-
-        # Non convergé
+            if line_search_iters > 0:
+                print(f"      Recherche linéaire: α = {alpha:.3f} après {line_search_iters} itérations")
+    
+        # Non convergé - retourner la meilleure solution trouvée
         info = ConvergenceInfo(
             converged=False,
             iterations=self.params.max_newton_iter,
-            residual_norm=residual_norm,
-            relative_residual=relative_residual,
+            residual_norm=best_residual_norm,
+            relative_residual=best_residual_norm/u_norm,
             reason="Nombre maximal d'itérations atteint"
         )
-
-        return u, v, a, info
     
+        # Utiliser la meilleure solution trouvée
+        v = v_prev + dt * ((1.0 - self.params.gamma) * a_prev + self.params.gamma * best_a)
+        
+        return best_u, v, best_a, info
+
     def _compute_acceleration(self, u: np.ndarray, u_prev: np.ndarray,
                             v_prev: np.ndarray, a_prev: np.ndarray, dt: float) -> np.ndarray:
         """Calcule l'accélération avec la formule de Newmark"""

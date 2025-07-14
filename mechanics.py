@@ -72,67 +72,67 @@ class ElementMatrices:
 
         # Intégration sur les points de Gauss
         for gp_idx, (xi, eta) in enumerate(self.gauss_points):
-            # Interpoler l'endommagement
-            N = self._shape_functions(xi, eta)
-            damage_gauss = np.dot(N, d[element_nodes])
-            g_d = self.materials.degradation_function(damage_gauss)
-
             # Matrice B et jacobien
             B, detJ = self._get_B_matrix_and_jacobian(elem_id, xi, eta, x_coords, y_coords)
 
-            if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
-                # IMPORTANT: Utiliser u_prev pour calculer les projecteurs (équation 26)
-                u_elem_prev = self._extract_element_displacements(element_nodes, u_prev)
-                strain_prev = B @ u_elem_prev
-                
-                # Gérer le cas du premier pas (u_prev = 0)
-                strain_norm = np.linalg.norm(strain_prev)
-                
-                if strain_norm < 1e-12:
-                    # Premier pas ou déformation nulle : pas de décomposition
-                    # Utiliser la matrice constitutive complète dégradée
-                    D_degraded = g_d * D
+            # Matrice constitutive à utiliser
+            D_effective = D.copy()
+
+            # Appliquer la dégradation seulement pour la glace
+            if self.mesh.material_id[elem_id] == 1:  # Glace
+                # Interpoler l'endommagement
+                N = self._shape_functions(xi, eta)
+                damage_gauss = np.dot(N, d[element_nodes])
+                g_d = self.materials.degradation_function(damage_gauss)
+
+                if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
+                    # Extraire les déplacements du pas précédent
+                    u_elem_prev = self._extract_element_displacements(element_nodes, u_prev)
+                    strain_prev = B @ u_elem_prev
+
+                    # Vérifier si la déformation est significative
+                    strain_norm = np.linalg.norm(strain_prev)
+
+                    if strain_norm > 1e-12:
+                        # Décomposition spectrale
+                        try:
+                            strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
+                                strain_prev, mat_props.E, mat_props.nu
+                            )
+
+                            # Calculer la matrice constitutive dégradée selon l'équation (26)
+                            # D_degraded = g(d) * P+ : C : P+ + P- : C : P-
+                            D_effective = g_d * (P_pos.T @ D @ P_pos) + (P_neg.T @ D @ P_neg)
+
+                            # Vérifier et forcer la symétrie
+                            D_effective = 0.5 * (D_effective + D_effective.T)
+
+                            P_pos_list.append(P_pos)
+                            P_neg_list.append(P_neg)
+
+                        except Exception as e:
+                            print(f"Erreur dans la décomposition spectrale: {e}")
+                            # Fallback : dégradation isotrope
+                            D_effective = g_d * D
+                            P_pos_list.append(np.eye(3))
+                            P_neg_list.append(np.zeros((3, 3)))
+                    else:
+                        # Déformation négligeable : dégradation isotrope
+                        D_effective = g_d * D
+                        P_pos_list.append(np.eye(3))
+                        P_neg_list.append(np.zeros((3, 3)))
+                else:
+                    # Sans décomposition : dégradation isotrope simple
+                    D_effective = g_d * D
                     P_pos_list.append(np.eye(3))
                     P_neg_list.append(np.zeros((3, 3)))
-                else:
-                    # Calculer les projecteurs avec la déformation du pas PRÉCÉDENT
-                    strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
-                        strain_prev, mat_props.E, mat_props.nu
-                    )
-
-                    # ÉQUATION (26) : C_{n+1}(d) = g(d) P^+(ε_n) : C : P^+(ε_n) + P^-(ε_n) : C : P^-(ε_n)
-                    
-                    # Méthode plus stable pour calculer la matrice constitutive dégradée
-                    # D_degraded = g(d) * P+ : C : P+ + P- : C : P-
-                    
-                    # Calculer P+ : C et P- : C
-                    P_pos_C = P_pos @ D
-                    P_neg_C = P_neg @ D
-                    
-                    # Matrice constitutive dégradée
-                    D_degraded = g_d * (P_pos_C.T @ P_pos) + (P_neg_C.T @ P_neg)
-                    
-                    # Vérifier la symétrie de D_degraded
-                    if np.linalg.norm(D_degraded - D_degraded.T) > 1e-10:
-                        print(f"Warning: D_degraded non symétrique, erreur = {np.linalg.norm(D_degraded - D_degraded.T)}")
-                        D_degraded = 0.5 * (D_degraded + D_degraded.T)
-                    
-                    # Sauvegarder les projecteurs
-                    P_pos_list.append(P_pos)
-                    P_neg_list.append(P_neg)
-
             else:
-                # Sans décomposition spectrale : appliquer seulement au matériau glace
-                if self.mesh.material_id[elem_id] == 1:  # Glace
-                    D_degraded = g_d * D
-                else:  # Substrat
-                    D_degraded = D  # Pas de dégradation pour le substrat
-                    
+                # Substrat : pas de dégradation
                 P_pos_list.append(np.eye(3))
                 P_neg_list.append(np.zeros((3, 3)))
 
             # Contribution à la matrice de rigidité
-            K_elem += B.T @ D_degraded @ B * detJ * self.gauss_weights[gp_idx]
+            K_elem += B.T @ D_effective @ B * detJ * self.gauss_weights[gp_idx]
 
         return K_elem, P_pos_list, P_neg_list
     
@@ -506,15 +506,12 @@ class SystemAssembler:
     def get_internal_forces(self, u: np.ndarray, d: np.ndarray, use_cache: bool = False) -> np.ndarray:
         """
         Calcule les forces internes incluant les contributions volumiques et cohésives
-        
-        Pour la décomposition spectrale, utilise les projecteurs stockés du pas précédent
-        pour garantir la cohérence avec la matrice K assemblée
-        
+
         Parameters:
             u: Déplacements actuels
             d: Endommagement
             use_cache: Utiliser le cache si disponible
-            
+
         Returns:
             Forces internes totales
         """
@@ -522,100 +519,129 @@ class SystemAssembler:
         if use_cache and self._internal_forces_cache is not None:
             if np.array_equal(u, self._cache_u) and np.array_equal(d, self._cache_d):
                 return self._internal_forces_cache.copy()
-        
+
         f_int = np.zeros(self.mesh.num_dofs_u)
-        
+
         # Déterminer si on utilise la décomposition
         use_decomposition = self.materials.use_decomposition
-        
+
         # Forces des éléments volumiques
         for e in range(self.mesh.num_elements):
             # Récupérer les données de l'élément
             element_nodes = self.mesh.elements[e]
             x_coords = self.mesh.nodes[element_nodes, 0]
             y_coords = self.mesh.nodes[element_nodes, 1]
-            
+
             # Propriétés matériaux
             mat_props = self.materials.get_properties(self.mesh.material_id[e])
             D = self.materials.get_constitutive_matrix(self.mesh.material_id[e])
-            
+
             # Déplacements élémentaires
             u_elem = np.zeros(8)
             for i in range(4):
                 node = element_nodes[i]
                 u_elem[2*i] = u[self.mesh.dof_map_u[node, 0]]
                 u_elem[2*i+1] = u[self.mesh.dof_map_u[node, 1]]
-            
+
             # Forces élémentaires
             f_elem = np.zeros(8)
-            
+
             # Intégration sur les points de Gauss
             for gp_idx, (xi, eta) in enumerate(self.elem_matrices.gauss_points):
-                # Interpoler l'endommagement
-                N = self.elem_matrices._shape_functions(xi, eta)
-                damage_gauss = np.dot(N, d[element_nodes])
-                g_d = self.materials.degradation_function(damage_gauss)
-                
                 # Matrice B et jacobien
                 B, detJ = self.elem_matrices._get_B_matrix_and_jacobian(
                     e, xi, eta, x_coords, y_coords
                 )
-                
+
                 # Déformation au point de Gauss
                 strain = B @ u_elem
-                
-                if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
-                    # IMPORTANT : Utiliser les projecteurs stockés pour la cohérence
-                    if e in self.P_pos_prev and gp_idx < len(self.P_pos_prev[e]):
-                        # Utiliser les projecteurs du pas précédent (cohérent avec K)
-                        P_pos = self.P_pos_prev[e][gp_idx]
-                        P_neg = self.P_neg_prev[e][gp_idx]
-                        
-                        # Contrainte selon l'équation (26) avec les projecteurs stockés
-                        # σ = C(d) : ε où C(d) = g(d) * P+ : C : P+ + P- : C : P-
-                        # Mais pour les forces, on a besoin de σ = C(d) : ε
-                        # Ce qui donne : σ = g(d) * P+ : C : ε + P- : C : ε
-                        P_pos_C = P_pos @ D
-                        P_neg_C = P_neg @ D
-                        
-                        stress = g_d * (P_pos_C.T @ strain) + (P_neg_C.T @ strain)
-                    else:
-                        # Cas initial ou projecteurs non disponibles
-                        if self.mesh.material_id[e] == 1:  # Glace
+
+                # Contrainte selon le type de matériau
+                if self.mesh.material_id[e] == 1:  # Glace
+                    # Interpoler l'endommagement
+                    N = self.elem_matrices._shape_functions(xi, eta)
+                    damage_gauss = np.dot(N, d[element_nodes])
+                    g_d = self.materials.degradation_function(damage_gauss)
+
+                    if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
+                        # Vérifier si on a des projecteurs stockés
+                        if e in self.P_pos_prev and gp_idx < len(self.P_pos_prev[e]):
+                            P_pos = self.P_pos_prev[e][gp_idx]
+                            P_neg = self.P_neg_prev[e][gp_idx]
+
+                            # Contrainte avec décomposition spectrale
+                            # σ = g(d) * P+ : C : ε + P- : C : ε
+                            stress_pos = P_pos.T @ D @ strain
+                            stress_neg = P_neg.T @ D @ strain
+                            stress = g_d * stress_pos + stress_neg
+                        else:
+                            # Pas de projecteurs : dégradation isotrope
                             stress = g_d * D @ strain
-                        else:  # Substrat
-                            stress = D @ strain
-                else:
-                    # Sans décomposition spectrale
-                    if self.mesh.material_id[e] == 1:  # Glace
+                    else:
+                        # Sans décomposition : dégradation isotrope simple
                         stress = g_d * D @ strain
-                    else:  # Substrat
-                        stress = D @ strain
-                
+                else:
+                    # Substrat : pas de dégradation
+                    stress = D @ strain
+
                 # Contribution aux forces internes
                 f_elem += B.T @ stress * detJ * self.elem_matrices.gauss_weights[gp_idx]
-            
+
             # Assembler
             dofs = self._get_element_dofs(element_nodes)
             for i in range(8):
                 f_int[dofs[i]] += f_elem[i]
-        
+
         # Forces cohésives
         if self.cohesive is not None:
             f_coh = self.cohesive.calculate_interface_forces(u)
             f_int += f_coh
-        
+
         # Mettre en cache si demandé
         if use_cache:
             self._internal_forces_cache = f_int.copy()
             self._cache_u = u.copy()
             self._cache_d = d.copy()
-        
+
         return f_int
     
     def reset_projection_tensors(self):
-        """Réinitialise les tenseurs de projection"""
-        self._initialize_projection_tensors()
+        """Réinitialise les tenseurs de projection de manière sûre"""
+        self.P_pos_prev = {}
+        self.P_neg_prev = {}
+
+        for e in range(self.mesh.num_elements):
+            # Initialiser avec l'identité pour P+ et zéro pour P-
+            # Cela correspond à un matériau non endommagé sans compression
+            self.P_pos_prev[e] = [np.eye(3, dtype=np.float64) for _ in range(4)]
+            self.P_neg_prev[e] = [np.zeros((3, 3), dtype=np.float64) for _ in range(4)]
+
+        # Réinitialiser aussi le cache des forces internes
+        self._internal_forces_cache = None
+        self._cache_u = None
+        self._cache_d = None
+
+        print("Tenseurs de projection réinitialisés")
+
+    def validate_projection_tensors(self):
+        """Valide que les tenseurs de projection sont corrects"""
+        for e in self.P_pos_prev:
+            for gp_idx, (P_pos, P_neg) in enumerate(zip(self.P_pos_prev[e], self.P_neg_prev[e])):
+                # Vérifier que P+ + P- = I (approximativement)
+                P_sum = P_pos + P_neg
+                identity_error = np.linalg.norm(P_sum - np.eye(3))
+                
+                if identity_error > 1e-10:
+                    print(f"Warning: P+ + P- != I pour élément {e}, GP {gp_idx}")
+                    print(f"  Erreur: {identity_error}")
+                
+                # Vérifier l'idempotence
+                P_pos_idemp_error = np.linalg.norm(P_pos @ P_pos - P_pos)
+                P_neg_idemp_error = np.linalg.norm(P_neg @ P_neg - P_neg)
+                
+                if P_pos_idemp_error > 1e-10 or P_neg_idemp_error > 1e-10:
+                    print(f"Warning: Projecteurs non idempotents pour élément {e}, GP {gp_idx}")
+                    print(f"  P+ erreur: {P_pos_idemp_error}, P- erreur: {P_neg_idemp_error}")
 
 
 class ResidualCalculator:
