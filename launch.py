@@ -9,8 +9,8 @@ from model import IceSubstratePhaseFieldFracture
 # ============================================================
 
 # --- Paramètres du maillage ---
-nx = 566                   # Nombre d'éléments en X
-ny_ice = 21                 # Nombre d'éléments dans la glace
+nx = 150                   # Nombre d'éléments en X
+ny_ice = 5                 # Nombre d'éléments dans la glace
 ny_substrate = 5            # Nombre d'éléments dans le substrat
 length = 170.0              # Longueur du domaine (mm)
 ice_height = 6.4            # Hauteur de la couche de glace (mm)
@@ -178,7 +178,7 @@ model = IceSubstratePhaseFieldFracture(
     interface_damage_threshold=interface_damage_threshold,
     
     # Options
-    use_stress_decomposition=use_stress_decomposition,
+    use_stress_decomposition=use_decomposition,
     plane_strain=plane_strain,
     save_plots=save_plots,
     display_plots=display_plots,
