@@ -20,7 +20,7 @@ substrate_height = 6.4      # Hauteur du substrat (mm)
 # --- Paramètres de maillage progressif ---
 use_coarse_near_bc = True   # Activer le maillage grossier près de l'encastrement
 coarse_zone_length = 15.0   # Zone grossière de 0 à x mm
-coarsening_ratio = 10.0      # Éléments 4x plus gros à x=0
+coarsening_ratio = nx/10      # Éléments 10x plus gros à x=0
 coarse_zone_reduction = 0.7 # Utiliser seulement 70% des éléments dans cette zone
 
 # --- Propriétés des matériaux ---
