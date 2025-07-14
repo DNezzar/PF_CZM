@@ -291,8 +291,7 @@ class EnergyCalculator:
                 psi_pos = 0.5 * np.dot(strain_pos, stress_pos)
                 
                 # IMPORTANT : Pour le champ de phase, on utilise SEULEMENT l'énergie positive
-                psi_gauss[gp_idx] = psi_pos
-                
+                psi_gauss[gp_idx] = max(0.0, psi_pos)
                 # Alternative (plus rigoureuse mais peut être instable numériquement) :
                 # stress = D @ strain
                 # psi_pos = 0.5 * np.dot(strain, P_pos @ stress)

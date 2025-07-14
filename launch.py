@@ -92,7 +92,7 @@ damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
 interface_damage_threshold = 0.8   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
-use_decomposition = False         # Décomposition spectrale
+use_decomposition = True         # Décomposition spectrale
 plane_strain = True              # Déformation plane (vs contrainte plane)
 save_plots = True                # Sauvegarder les graphiques
 display_plots = False            # Afficher les graphiques

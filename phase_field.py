@@ -226,7 +226,8 @@ class PhaseFieldSolver:
                 
                 # Mettre à jour l'histoire pour CET élément spécifique
                 # Éviter les valeurs négatives dues aux erreurs numériques
-                psi_plus_gauss = np.maximum(psi_plus_gauss, 0.0)
+                psi_plus_gauss = np.where(psi_plus_gauss < 1e-12, 0.0, psi_plus_gauss)
+                #psi_plus_gauss = np.maximum(psi_plus_gauss, 0.0)
                 self.history.update_element(e, psi_plus_gauss)
             # else: Substrat - pas de mise à jour de l'histoire
     

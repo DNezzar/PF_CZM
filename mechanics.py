@@ -94,49 +94,31 @@ class ElementMatrices:
             if use_decomposition and hasattr(self.materials, 'spectral_decomp'):
                 # Calculer la déformation actuelle
                 strain = B @ u_elem
-                
-                # Décomposer la déformation actuelle pour obtenir les projecteurs actuels
+
+                # Décomposer la déformation
                 strain_pos, strain_neg, P_pos, P_neg = self.materials.spectral_decomp.decompose(
                     strain, mat_props.E, mat_props.nu
                 )
-                
-                # CORRECTION : Matrice constitutive dégradée avec décomposition spectrale
-                # Pour la partie positive (endommagée)
-                D_pos = g_d * D
-                # Pour la partie négative (non endommagée)
-                D_neg = D
-                
-                # Méthode stable : Approximation basée sur la trace des projecteurs
-                trace_P_pos = np.trace(P_pos)
-                trace_P_neg = np.trace(P_neg)
-                
-                # Facteur de dégradation effectif
-                effective_degradation = g_d * (trace_P_pos / 3.0) + (trace_P_neg / 3.0)
-                
-                # Pour la stabilité, on utilise :
-                D_degraded = effective_degradation * D
-                
-                # Alternative plus rigoureuse mais potentiellement moins stable :
-                # # Contribution de la partie positive (endommagée)
-                # K_pos_contrib = np.zeros((3, 3))
-                # for i in range(3):
-                #     for j in range(3):
-                #         for k in range(3):
-                #             for l in range(3):
-                #                 K_pos_contrib[i, j] += g_d * P_pos[i, k] * D[k, l] * P_pos[l, j]
-                # 
-                # # Contribution de la partie négative (non endommagée)
-                # K_neg_contrib = np.zeros((3, 3))
-                # for i in range(3):
-                #     for j in range(3):
-                #         for k in range(3):
-                #             for l in range(3):
-                #                 K_neg_contrib[i, j] += P_neg[i, k] * D[k, l] * P_neg[l, j]
-                # 
-                # # Matrice tangente totale
-                # D_degraded = K_pos_contrib + K_neg_contrib
-                
-                # Sauvegarder les projecteurs pour l'initialisation du pas suivant
+
+                # Formulation tensorielle correcte
+                D_pos_tensor = np.zeros((3, 3))
+                D_neg_tensor = np.zeros((3, 3))
+
+                #for i in range(3):
+                #    for j in range(3):
+                #        for k in range(3):
+                #            for l in range(3):
+                #                D_pos_tensor[i, j] += g_d * P_pos[i, k] * D[k, l] * P_pos[l, j]
+                #                D_neg_tensor[i, j] += P_neg[i, k] * D[k, l] * P_neg[l, j]
+                #                #D_pos_tensor = g_d * np.einsum('ik,kl,lj->ij', P_pos, D, P_pos)
+                #                #D_neg_tensor = np.einsum('ik,kl,lj->ij', P_neg, D, P_neg)
+                D_pos_tensor = g_d * P_pos @ D @ P_pos
+                D_neg_tensor = P_neg @ D @ P_neg    
+
+                # Matrice tangente totale
+                D_degraded = D_pos_tensor + D_neg_tensor
+
+                # Sauvegarder les projecteurs
                 P_pos_new.append(P_pos)
                 P_neg_new.append(P_neg)
                 
