@@ -9,7 +9,7 @@ from model import IceSubstratePhaseFieldFracture
 # ============================================================
 
 # --- Paramètres du maillage ---
-nx = 100                   # Nombre d'éléments en X
+nx = 100                 # Nombre d'éléments en X
 ny_ice = 5                 # Nombre d'éléments dans la glace
 ny_substrate = 5            # Nombre d'éléments dans le substrat
 length = 170.0              # Longueur du domaine (mm)
@@ -20,7 +20,7 @@ substrate_height = 6.4      # Hauteur du substrat (mm)
 # --- Paramètres de maillage progressif ---
 use_coarse_near_bc = True   # Activer le maillage grossier près de l'encastrement
 coarse_zone_length = 15.0   # Zone grossière de 0 à x mm
-coarsening_ratio = nx/10      # Éléments 10x plus gros à x=0
+coarsening_ratio = 10      # Éléments 10x plus gros à x=0
 coarse_zone_reduction = 0.7 # Utiliser seulement 70% des éléments dans cette zone
 
 # --- Propriétés des matériaux ---
@@ -92,7 +92,7 @@ damage_threshold = 0.8             # Seuil d'évolution rapide (volume)
 interface_damage_threshold = 0.8   # Seuil d'évolution rapide (interface)
 
 # --- Options ---
-use_decomposition = True         # Décomposition spectrale
+use_decomposition = False         # Décomposition spectrale
 plane_strain = True              # Déformation plane (vs contrainte plane)
 save_plots = True                # Sauvegarder les graphiques
 display_plots = False            # Afficher les graphiques
@@ -178,7 +178,7 @@ model = IceSubstratePhaseFieldFracture(
     interface_damage_threshold=interface_damage_threshold,
     
     # Options
-    use_stress_decomposition=use_decomposition,
+    use_decomposition=use_decomposition,
     plane_strain=plane_strain,
     save_plots=save_plots,
     display_plots=display_plots,
